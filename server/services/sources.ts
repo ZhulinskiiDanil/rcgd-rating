@@ -92,28 +92,68 @@ export async function apiData(
 }
 export async function fetchLevels(): Promise<GlobalLevel[]> {
   const levels: GlobalLevel[] = [];
-  for (let offset = 0; offset < 20000; offset += 500) {
-    const page = z
+  const ids = new Set<number>();
+  let lastPlacement = 0;
+  let firstPage: GlobalLevel[] | undefined;
+  let complete = false;
+  const readPage = async (offset: number) =>
+    z
       .object({ levels: z.array(apiLevel) })
-      .parse(
-        await apiData("/level/classic/list", { limit: 500, offset }),
-      ).levels;
+      .parse(await apiData("/level/classic/list", { limit: 500, offset }))
+      .levels;
+  // This endpoint has no total count. A short page is not proof of completion.
+  for (let offset = 0; offset < 20000;) {
+    const page = await readPage(offset);
+    if (!page.length) {
+      complete = true;
+      break;
+    }
+    if (page.length > 500)
+      throw new Error("Глобальный список не соблюдает размер страницы");
+    firstPage ??= page;
+    for (const level of page) {
+      if (ids.has(level.id))
+        throw new Error(
+          "Неполный или повторяющийся глобальный список; обновление отменено",
+        );
+      ids.add(level.id);
+      if (level.placement !== null) {
+        if (level.placement <= lastPlacement)
+          throw new Error(
+            "Повторяющиеся позиции или изменившийся порядок глобального списка",
+          );
+        lastPlacement = level.placement;
+      }
+    }
     levels.push(...page);
-    if (page.length < 500) break;
-    if (offset === 19500)
-      throw new Error("Слишком много страниц глобального списка");
+    offset += page.length;
   }
-  if (
-    new Set(levels.map((l) => l.id)).size !== levels.length ||
-    levels.length < 150
-  )
+  if (!complete)
+    throw new Error(
+      "Не достигнут конец глобального списка; обновление отменено",
+    );
+  if (levels.length < 150)
     throw new Error(
       "Неполный или повторяющийся глобальный список; обновление отменено",
     );
-  const ranks = new Set(levels.map((l) => l.placement));
-  if (Array.from({ length: 150 }, (_, i) => i + 1).some((n) => !ranks.has(n)))
-    throw new Error("В глобальном топе-150 есть пропуски");
+  const signature = (page: GlobalLevel[]) =>
+    JSON.stringify(page.map((level) => [level.id, level.placement]));
+  if (signature(await readPage(0)) !== signature(firstPage!))
+    throw new Error(
+      "Глобальный список изменился во время чтения; обновление отменено",
+    );
+  // Removed levels can leave holes in upstream placements; retain their ranks.
   return levels;
+}
+export function assertGlobalSnapshotSize(
+  previousCount: number,
+  nextCount: number,
+) {
+  const missing = previousCount - nextCount;
+  if (missing > 50 && missing * 10 > previousCount)
+    throw new Error(
+      `Глобальный список резко сократился: было ${previousCount}, получено ${nextCount}, отсутствует ${missing}; обновление отменено`,
+    );
 }
 export async function fetchRecords(userId: number): Promise<GlobalRecord[]> {
   const results: GlobalRecord[] = [];

@@ -5,6 +5,7 @@ import {
   CORE,
   SHEET,
   fetchLevels,
+  assertGlobalSnapshotSize,
   fetchRecords,
   parseCoreboard,
   parseSheet,
@@ -406,6 +407,18 @@ export async function synchronize(actorId: number | null = null) {
   const warnings: string[] = [];
   try {
     const levels = await fetchLevels();
+    const previousCount = one<{ count: number }>(
+      "SELECT COUNT(*) AS count FROM levels WHERE gdlId IS NOT NULL AND globalRank IS NOT NULL",
+    )!.count;
+    assertGlobalSnapshotSize(previousCount, levels.length);
+    const globalRanks = new Set(levels.map((level) => level.placement));
+    const missingRanks = Array.from({ length: 150 }, (_, i) => i + 1).filter(
+      (rank) => !globalRanks.has(rank),
+    );
+    if (missingRanks.length)
+      warnings.push(
+        `В глобальном источнике отсутствуют позиции: ${missingRanks.join(", ")}; опубликованные позиции сохранены без перенумерации`,
+      );
     let thresholds: Threshold[] | null = null;
     try {
       thresholds = parseCoreboard(await sourceText(CORE));

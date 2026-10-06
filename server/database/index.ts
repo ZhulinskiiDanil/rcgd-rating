@@ -1,6 +1,7 @@
 import Database from "better-sqlite3";
 import { mkdirSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { dirname } from "node:path";
+import { resolveDatabasePath } from "./path";
 import {
   migrateMedia,
   migrateRecordDates,
@@ -19,7 +20,7 @@ import type {
 let connection: Database.Database | undefined;
 export function db() {
   if (connection) return connection;
-  const file = resolve(process.env.DATABASE_PATH || ".data/spb.sqlite");
+  const file = resolveDatabasePath();
   mkdirSync(dirname(file), { recursive: true });
   connection = new Database(file);
   connection.pragma("journal_mode = WAL");
