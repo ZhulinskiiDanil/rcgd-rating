@@ -45,16 +45,14 @@ const active = (path: string) =>
     <header class="site-header" @keydown.esc="menuOpen = false">
       <div class="header-inner">
         <NuxtLink to="/" class="brand" aria-label="СПб Demonlist — главная">
-          <svg
-            class="city-mark"
-            viewBox="0 0 90 55"
-            fill="currentColor"
+          <img
+            class="brand-logo"
+            src="/spb-crest.webp"
+            width="64"
+            height="64"
+            alt=""
             aria-hidden="true"
-          >
-            <path
-              d="M1 49h88v4H1zM4 42h13v7H4zm3-5h7v5H7zm14-5h7v17h-7zm2-9h3v9h-3zm1-14h1v14h-1zm6 29h10v11H30zm11-7h13v18H41zm2-6h9v6h-9zm3-8h3v8h-3zm1-15h1v15h-1zm9 32h13v15H56zm3-6h7v6h-7zm3-10h1v10h-1zm10 23h12v8H72zm4-6h4v6h-4z"
-            />
-          </svg>
+          />
           <span
             ><strong>СПб Demonlist</strong
             ><small>Санкт-Петербург и область</small></span
@@ -429,10 +427,12 @@ const active = (path: string) =>
   gap: 12px;
   flex-shrink: 0;
 }
-.city-mark {
-  width: 72px;
-  height: 50px;
-  color: var(--text);
+.brand-logo {
+  display: block;
+  width: 64px;
+  height: 64px;
+  flex-shrink: 0;
+  object-fit: contain;
 }
 .brand > span {
   display: grid;
@@ -548,8 +548,9 @@ footer {
     gap: 20px;
     padding-inline: 28px;
   }
-  .city-mark {
-    width: 55px;
+  .brand-logo {
+    width: 56px;
+    height: 56px;
   }
   .brand strong {
     font-size: 18px;
@@ -569,8 +570,9 @@ footer {
   .brand small {
     display: none;
   }
-  .city-mark {
-    width: 46px;
+  .brand-logo {
+    width: 48px;
+    height: 48px;
   }
   .brand {
     gap: 8px;
@@ -612,8 +614,9 @@ footer {
   .brand strong {
     font-size: 17px;
   }
-  .city-mark {
-    height: 42px;
+  .brand-logo {
+    width: 44px;
+    height: 44px;
   }
   .menu-toggle {
     display: inline-flex !important;
@@ -675,14 +678,18 @@ footer {
   }
 }
 @media (max-width: 400px) {
-  .city-mark {
-    display: none;
+  .brand-logo {
+    width: 36px;
+    height: 36px;
+  }
+  .brand {
+    gap: 6px;
   }
   .brand strong {
-    font-size: 16px;
+    font-size: 14px;
   }
   .header-inner {
-    padding-inline: 16px;
+    padding-inline: 12px;
   }
   .header-actions {
     gap: 2px;

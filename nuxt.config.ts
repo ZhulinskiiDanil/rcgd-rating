@@ -15,7 +15,15 @@ export default defineNuxtConfig({
     head: {
       htmlAttrs: { lang: "ru" },
       title: "СПб Demonlist",
-      link: [{ rel: "icon", type: "image/svg+xml", href: "/favicon.svg" }],
+      link: [
+        { rel: "icon", type: "image/x-icon", href: "/favicon.ico?v=crest-1" },
+        {
+          rel: "icon",
+          type: "image/png",
+          sizes: "96x96",
+          href: "/spb-favicon.png",
+        },
+      ],
       meta: [
         {
           name: "description",
