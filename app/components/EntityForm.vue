@@ -48,7 +48,7 @@ function isGlobalField(field: Field) {
   return (
     props.resource === "levels" &&
     !!props.row?.gdlId &&
-    ["name", "creator"].includes(field.key)
+    ["name", "creator", "ingameId", "manualPosition"].includes(field.key)
   );
 }
 
@@ -341,7 +341,12 @@ onMounted(() => {
             :disabled="busy"
           >
             <option value="">Не выбрано</option>
-            <option v-for="o in f.options" :key="o.value" :value="o.value">
+            <option
+              v-for="o in f.options"
+              :key="o.value"
+              :value="o.value"
+              :disabled="o.disabled && row?.levelId !== o.value"
+            >
               {{ o.label }}
             </option>
           </select>
@@ -384,6 +389,18 @@ onMounted(() => {
         <small v-else-if="f.help">{{ f.help }}</small>
       </div>
     </div>
+    <EntityDeleteButton
+      v-if="
+        row?.id &&
+        (resource === 'levels' ||
+          resource === 'records' ||
+          resource === 'extras')
+      "
+      :resource="resource"
+      :entity-id="Number(row.id)"
+      :disabled="isBusy"
+      @saved="emit('saved')"
+    />
     <div class="form-actions">
       <button class="primary" :disabled="isBusy || dateBusy">
         <AppIcon name="check" :size="16" />{{

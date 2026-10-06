@@ -4,9 +4,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import assert from "node:assert/strict";
+import Database from "better-sqlite3";
 
 const origin = "http://127.0.0.1:3100";
 const password = randomBytes(24).toString("base64url");
+const databasePath = join(
+  mkdtempSync(join(tmpdir(), "spb-http-")),
+  "test.sqlite",
+);
 const server = spawn(process.execPath, [".output/server/index.mjs"], {
   windowsHide: true,
   env: {
@@ -14,10 +19,7 @@ const server = spawn(process.execPath, [".output/server/index.mjs"], {
     PORT: "3100",
     HOST: "127.0.0.1",
     APP_ORIGIN: origin,
-    DATABASE_PATH: join(
-      mkdtempSync(join(tmpdir(), "spb-http-")),
-      "test.sqlite",
-    ),
+    DATABASE_PATH: databasePath,
     NUXT_SESSION_PASSWORD: randomBytes(48).toString("base64url"),
     HEAD_ADMIN_LOGIN: "testadmin",
     HEAD_ADMIN_PASSWORD: password,
@@ -316,6 +318,9 @@ try {
     body: {
       name: "Test level",
       verifiedLocal: false,
+      manualPosition: 1,
+      length: 120,
+      gameVersion: "2.2",
       creator: "Test",
       video: "",
       thresholdName: null,
@@ -521,6 +526,9 @@ try {
   assert.ok(!JSON.stringify(catalog).includes("passwordHash"));
   for (const page of [
     "/",
+    "/demonlist",
+    "/demonlist?list=extended",
+    "/forecast?type=players&id=" + player.value.id,
     "/legacy",
     "/players",
     "/players/" + player.value.id,
@@ -535,6 +543,177 @@ try {
     assert.equal(response.status, 200, page);
     assert.ok(!response.value.includes("Internal Server Error"), page);
   }
+  assert.equal(
+    (await call("/districts/36")).status,
+    404,
+    "Empty district has no public profile",
+  );
+  assert.equal(
+    (
+      await call("/api/account/profile", {
+        method: "PATCH",
+        cookie: regular,
+        body: { nickname: "New Smoke Nick" },
+      })
+    ).status,
+    200,
+  );
+  assert.equal(
+    (await call("/api/auth/me", { cookie: regular })).value.nickname,
+    "New Smoke Nick",
+  );
+  assert.equal(
+    (await call("/api/auth/me", { cookie: regular })).value.login,
+    "regular",
+  );
+  assert.equal(
+    (await call("/api/catalog")).value.players[0].name,
+    "New Smoke Nick",
+  );
+  assert.equal(
+    (
+      await call("/api/account/profile", {
+        method: "PATCH",
+        cookie: regular,
+        body: { nickname: "TESTADMIN" },
+      })
+    ).status,
+    409,
+  );
+  assert.equal(
+    (
+      await call("/api/account/profile", {
+        method: "PATCH",
+        body: { nickname: "Anonymous" },
+      })
+    ).status,
+    401,
+  );
+  assert.equal(
+    (
+      await call(`/api/admin/records/${record.value.id}`, {
+        method: "DELETE",
+        cookie: regular,
+      })
+    ).status,
+    403,
+  );
+
+  // Seed enough harder completed levels to exercise the real boundary via HTTP mutations.
+  const fixtures = new Database(databasePath);
+  fixtures.transaction(() => {
+    fixtures
+      .prepare(
+        "UPDATE levels SET globalRank=151,gdlId=9999,manualPosition=NULL,verifiedLocal=1 WHERE id=?",
+      )
+      .run(fakeLevel.value.id);
+    const insert = fixtures.prepare(
+      "INSERT INTO levels(name,globalRank,verifiedLocal) VALUES(?,?,1)",
+    );
+    for (let i = 1; i <= 150; i++) insert.run(`Boundary ${i}`, i);
+  })();
+  fixtures.close();
+  assert.equal(
+    (
+      await call("/api/admin/players", {
+        method: "POST",
+        cookie: admin,
+        body: { ...playerFields, name: "New Smoke Nick", inactive: true },
+      })
+    ).status,
+    200,
+  );
+  const boundary = (await call("/api/catalog")).value;
+  assert.equal(boundary.levels.filter((l) => l.status === "main").length, 75);
+  assert.equal(
+    boundary.levels.filter((l) => l.status === "extended").length,
+    75,
+  );
+  assert.equal(
+    boundary.levels.find((l) => l.id === fakeLevel.value.id).status,
+    "legacy",
+  );
+  assert.equal(boundary.players[0].inactive, 1);
+  assert.equal(
+    (
+      await call("/api/admin/records", {
+        method: "POST",
+        cookie: admin,
+        body: { ...recordFields, manualPercent: 90 },
+      })
+    ).status,
+    400,
+  );
+  assert.equal(
+    (
+      await call("/api/admin/extras", {
+        method: "POST",
+        cookie: admin,
+        body: { districtId: 2, levelId: fakeLevel.value.id },
+      })
+    ).status,
+    400,
+  );
+  assert.equal(
+    (
+      await call("/api/admin/records", {
+        method: "POST",
+        cookie: admin,
+        body: {
+          ...recordFields,
+          achievedAt: "2026-10-01",
+          dateSource: "manual",
+        },
+      })
+    ).status,
+    200,
+  );
+  assert.equal(
+    (
+      await call(`/api/admin/records/${record.value.id}`, {
+        method: "DELETE",
+        cookie: admin,
+      })
+    ).status,
+    200,
+  );
+  assert.equal((await call("/api/catalog")).value.records.length, 0);
+  assert.equal(
+    (
+      await call("/api/admin/records", {
+        method: "POST",
+        cookie: admin,
+        body: recordFields,
+      })
+    ).status,
+    409,
+  );
+  assert.equal(
+    (
+      await call(`/api/admin/levels/${fakeLevel.value.id}`, {
+        method: "DELETE",
+        cookie: admin,
+      })
+    ).status,
+    200,
+  );
+  const excluded = (await call("/api/catalog")).value.levels.find(
+    (l) => l.id === fakeLevel.value.id,
+  );
+  assert.equal(excluded.status, "catalog");
+  assert.equal(excluded.listExcluded, 1);
+  assert.equal((await call(`/levels/${fakeLevel.value.id}`)).status, 404);
+  const events = (await call("/api/changes")).value;
+  assert.ok(
+    events.every((e) =>
+      ["level", "player-rating", "district-rating"].includes(e.kind),
+    ),
+  );
+  assert.ok(events.every((e) => !("beforeJson" in e) && !("actorId" in e)));
+  assert.ok(
+    (await call(`/api/history?type=levels&id=${fakeLevel.value.id}`)).value
+      .length > 0,
+  );
   assert.equal(
     (
       await call("/api/admin/accounts", {
@@ -583,7 +762,7 @@ try {
     200,
   );
   console.log(
-    "HTTP smoke passed: public pages, registration, password login, manual record, district results, CSRF, permissions grant/revocation, disabled account, logout.",
+    "HTTP smoke passed: public pages, 75/75 list, custom levels, nickname, inactive players, Legacy rejection, deletions, history, records, CSRF, permissions, disabled account, logout.",
   );
 } catch (error) {
   console.error(output);

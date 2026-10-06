@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { hasLevelPage } from "#shared/utils/rating";
+const { data: catalog } = await useCatalog();
 const page = ref(1),
   kind = ref("");
 watch(kind, () => {
@@ -9,23 +11,22 @@ const { data, error, status, refresh } = await useFetch("/api/changes", {
 });
 const labels: Record<string, string> = {
   level: "Уровни",
-  threshold: "Проценты",
-  record: "Рекорды",
-  "record-review": "Рекорды для проверки",
   "player-rating": "Рейтинг игроков",
   "district-rating": "Рейтинг районов",
-  "district-extra": "Достижения районов",
-  "player-district": "Переезды игроков",
-  import: "Импорт",
-  news: "Новости",
 };
 function link(eventKind: string, id: number | null) {
   if (!id) return null;
-  if (eventKind === "level" || eventKind === "threshold")
-    return `/levels/${id}`;
-  if (eventKind.startsWith("player") || eventKind.startsWith("record"))
-    return `/players/${id}`;
-  if (eventKind.startsWith("district")) return `/districts/${id}`;
+  if (eventKind === "level")
+    return catalog.value?.levels.some((l) => l.id === id && hasLevelPage(l))
+      ? `/levels/${id}`
+      : null;
+  if (eventKind === "player-rating") return `/players/${id}`;
+  if (eventKind === "district-rating")
+    return catalog.value?.districts.some(
+      (d) => d.id === id && (d.completionCount || d.legacyCompletionCount),
+    )
+      ? `/districts/${id}`
+      : null;
   return null;
 }
 function icon(eventKind: string) {
@@ -58,7 +59,6 @@ const groups = computed(() => {
   }
   return result;
 });
-const formatted = (value: string) => JSON.stringify(JSON.parse(value), null, 2);
 useHead({ title: "История изменений · СПб Demonlist" });
 </script>
 <template>
@@ -67,11 +67,10 @@ useHead({ title: "История изменений · СПб Demonlist" });
       <div>
         <h1>История изменений</h1>
         <p class="page-intro">
-          Новые рекорды, перестановки в листе и движение рейтингов.
+          Перестановки уровней и изменения мест игроков и районов.
         </p>
       </div>
       <span class="timezone"><AppIcon name="clock" />Время московское</span>
-      <EntityEditButton resource="news" label="Добавить новость" />
     </header>
     <div class="history-toolbar">
       <label
@@ -103,13 +102,6 @@ useHead({ title: "История изменений · СПб Demonlist" });
               <div class="event-meta">
                 <span>{{ labels[c.kind] || c.kind }}</span
                 ><time :datetime="c.createdAt">{{ time(c.createdAt) }}</time>
-                <EntityEditButton
-                  v-if="c.kind === 'news'"
-                  resource="news"
-                  :entity-id="c.id"
-                  label="Редактировать новость"
-                  compact
-                />
               </div>
               <p class="event-title">
                 <NuxtLink
@@ -118,19 +110,6 @@ useHead({ title: "История изменений · СПб Demonlist" });
                   >{{ c.title }}</NuxtLink
                 ><span v-else>{{ c.title }}</span>
               </p>
-              <details v-if="c.beforeJson !== 'null' || c.afterJson !== 'null'">
-                <summary>Данные изменения</summary>
-                <div class="change-data">
-                  <div>
-                    <span>До изменения</span>
-                    <pre>{{ formatted(c.beforeJson) }}</pre>
-                  </div>
-                  <div>
-                    <span>После изменения</span>
-                    <pre>{{ formatted(c.afterJson) }}</pre>
-                  </div>
-                </div>
-              </details>
             </div>
           </li>
         </ol>
@@ -145,7 +124,7 @@ useHead({ title: "История изменений · СПб Demonlist" });
         {{
           kind
             ? "Попробуйте выбрать другой тип события или вернуться ко всем изменениям."
-            : "Здесь появятся обновления листа, рекордов и рейтингов."
+            : "Здесь появятся обновления листа и рейтингов."
         }}
       </p>
       <button v-if="kind" @click="kind = ''">Все события</button>

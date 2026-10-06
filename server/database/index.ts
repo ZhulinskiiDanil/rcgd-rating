@@ -1,7 +1,11 @@
 import Database from "better-sqlite3";
 import { mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { migrateMedia, migrateRecordDates } from "./migrations";
+import {
+  migrateMedia,
+  migrateRecordDates,
+  migrateListControls,
+} from "./migrations";
 import type {
   Account,
   DataSet,
@@ -49,6 +53,7 @@ export function db() {
   `);
   migrateMedia(connection);
   migrateRecordDates(connection);
+  migrateListControls(connection);
   const cities = [
     "Адмиралтейский",
     "Василеостровский",

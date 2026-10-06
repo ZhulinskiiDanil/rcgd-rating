@@ -1,37 +1,44 @@
 <script setup lang="ts">
 import type { RegionalFirstVictor } from "#shared/utils/victors";
 import { formatCompletionDate } from "#shared/utils/victors";
-defineProps<{ rows: RegionalFirstVictor[] }>();
+const props = defineProps<{ rows: RegionalFirstVictor[] }>();
+const visibleRows = computed(() =>
+  props.rows.filter((row) => row.hasCompletions),
+);
 </script>
 
 <template>
-  <section class="regional-victors" aria-labelledby="first-victors-heading">
+  <section
+    v-if="visibleRows.length"
+    class="regional-victors"
+    aria-labelledby="first-victors-heading"
+  >
     <h2 id="first-victors-heading">Первые викторы</h2>
-    <div v-for="row in rows" :key="row.region" class="region-row">
+    <div v-for="row in visibleRows" :key="row.region" class="region-row">
       <span class="region-label">{{ row.label }}</span>
       <div class="region-result">
+        <div class="victor-names" v-if="row.victors.length">
+          <NuxtLink
+            v-for="victor in row.victors"
+            :key="victor.playerId"
+            :to="`/players/${victor.playerId}`"
+            >{{ victor.name }}</NuxtLink
+          >
+        </div>
         <template v-if="row.firstDate">
-          <div class="victor-names" v-if="row.victors.length">
-            <NuxtLink
-              v-for="victor in row.victors"
-              :key="victor.playerId"
-              :to="`/players/${victor.playerId}`"
-              >{{ victor.name }}</NuxtLink
-            >
-          </div>
-          <span v-else class="unknown">Виктор не указан</span>
+          <span v-if="!row.victors.length" class="unknown"
+            >Виктор не указан</span
+          >
           <div class="date-line">
             <time :datetime="row.firstDate">{{
               formatCompletionDate(row.firstDate)
             }}</time>
-            <span v-if="row.hasUndated">по известным датам</span>
             <span v-if="row.victors.length > 1">одна дата прохождения</span>
           </div>
         </template>
         <span v-else-if="row.hasCompletions" class="unknown"
           >Дата первого прохождения не указана</span
         >
-        <span v-else class="unknown">Нет прохождений с указанным регионом</span>
       </div>
     </div>
   </section>

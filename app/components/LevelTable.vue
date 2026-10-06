@@ -1,25 +1,24 @@
 <script setup lang="ts">
+import type { RegionalFirstVictor } from "#shared/utils/victors";
 import type { Level } from "#shared/types/domain";
 withDefaults(
   defineProps<{
     levels: Level[];
     legacy?: boolean;
-    completionCounts?: Record<number, number>;
+    victors?: Record<number, RegionalFirstVictor[]>;
+    completed?: Set<number>;
+    first?: Set<number>;
   }>(),
-  { completionCounts: () => ({}) },
+  {
+    victors: () => ({}),
+    completed: () => new Set<number>(),
+    first: () => new Set<number>(),
+  },
 );
 const exitDate = (date: string | null) =>
   date
     ? new Date(date).toLocaleDateString("ru-RU", { timeZone: "Europe/Moscow" })
     : "Неизвестно";
-const completionWord = (count: number) => {
-  const form = new Intl.PluralRules("ru").select(count);
-  return form === "one"
-    ? "прохождение"
-    : form === "few"
-      ? "прохождения"
-      : "прохождений";
-};
 </script>
 <template>
   <div class="level-list">
@@ -27,34 +26,42 @@ const completionWord = (count: number) => {
       <span>Место</span><span>Уровень</span
       ><span>{{ legacy ? "Дата выхода" : "Глобал" }}</span>
     </div>
-    <div v-for="level in levels" :key="level.id" class="level-entry">
+    <div
+      v-for="level in levels"
+      :key="level.id"
+      class="level-entry"
+      :class="{
+        completed: completed.has(level.id),
+        first: first.has(level.id),
+      }"
+    >
       <NuxtLink
         :to="`/levels/${level.id}`"
         class="level-row"
         :class="{ 'top-rank': level.localRank === 1 }"
       >
         <span class="rank">{{
-          level.localRank
-            ? "#" + level.localRank
-            : level.lastMainRank
-              ? "#" + level.lastMainRank
-              : "—"
+          level.localRank ? "#" + level.localRank : "—"
         }}</span>
         <span class="thumbnail"><LevelArtwork :level="level" /></span>
         <span class="level-info"
           ><strong>{{ level.name }}</strong
           ><span>{{ level.creator || "Автор не указан" }}</span
-          ><small v-if="completionCounts[level.id]"
-            ><AppIcon name="check" :size="11" />
-            {{ completionCounts[level.id] }}
-            {{ completionWord(completionCounts[level.id]!) }}</small
+          ><small
+            v-for="row in (victors[level.id] ?? []).filter(
+              (r) => r.victors.length,
+            )"
+            :key="row.region"
+            class="victor-line"
+            ><span>{{ row.region === "spb" ? "СПб" : "ЛО" }}</span>
+            {{ row.victors.map((v) => v.name).join(", ") }}</small
           ></span
         >
         <span class="global-rank">{{
           legacy
             ? exitDate(level.exitedAt)
             : level.globalRank
-              ? "#" + level.globalRank
+              ? "#" + level.globalRank + " Global"
               : "—"
         }}</span
         ><AppIcon class="row-chevron" name="chevron" :size="15" />
@@ -64,6 +71,11 @@ const completionWord = (count: number) => {
           resource="levels"
           :entity-id="level.id"
           :label="`Редактировать уровень ${level.name}`"
+          compact
+        /><EntityDeleteButton
+          resource="levels"
+          :entity-id="level.id"
+          :label="`Удалить уровень ${level.name}`"
           compact
         />
       </div>
@@ -89,9 +101,21 @@ const completionWord = (count: number) => {
 }
 .row-actions {
   padding-right: 16px;
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
   &:empty {
     display: none;
   }
+}
+.level-entry.completed {
+  box-shadow: inset 4px 0 var(--success);
+}
+.level-entry.first {
+  box-shadow: inset 4px 0 var(--warm);
+}
+.victor-line > span {
+  font-weight: 600;
 }
 .list-heading {
   display: grid;
@@ -157,6 +181,8 @@ const completionWord = (count: number) => {
   gap: 5px;
   color: var(--muted);
   font-size: 11px;
+  overflow-wrap: anywhere;
+  min-width: 0;
 }
 .global-rank {
   border: 1px solid var(--line);
@@ -203,6 +229,14 @@ const completionWord = (count: number) => {
   }
 }
 @media (max-width: 540px) {
+  .level-entry {
+    flex-wrap: wrap;
+  }
+  .row-actions {
+    width: 100%;
+    padding: 0 12px 10px;
+    justify-content: flex-end;
+  }
   .level-row {
     grid-template-columns: 35px 72px minmax(0, 1fr);
     gap: 12px;
@@ -227,9 +261,10 @@ const completionWord = (count: number) => {
     font-size: 10px;
   }
   .global-rank {
-    position: absolute;
-    left: 60px;
-    bottom: 6px;
+    position: static;
+    grid-column: 3;
+    justify-self: start;
+    margin-top: -6px;
     padding: 0;
     border: 0;
     font-size: 10px;

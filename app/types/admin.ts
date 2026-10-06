@@ -25,7 +25,7 @@ export interface Field {
   required?: boolean;
   nullable?: boolean;
   valueType?: "number";
-  options?: { value: string | number; label: string }[];
+  options?: { value: string | number; label: string; disabled?: boolean }[];
   help?: string;
   default?: unknown;
 }

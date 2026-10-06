@@ -10,7 +10,9 @@ import {
   PERMISSIONS,
   type Permission,
   type Player,
+  type Level,
 } from "../../../shared/types/domain";
+import { normalizedName } from "../../../shared/utils/rating";
 const id = z.number().int().positive();
 const optionalId = id.nullable().default(null);
 const text = z.string().trim().max(2000);
@@ -36,6 +38,7 @@ const schemas = {
     bio: text.default(""),
     accountId: optionalId,
     avatarUrl: imageUrl.optional(),
+    inactive: z.boolean().optional(),
   }),
   levels: z.object({
     id: id.optional(),
@@ -49,6 +52,11 @@ const schemas = {
     verificationPlayerId: id.nullable().optional(),
     verificationRegion: z.enum(["spb", "lo"]).nullable().optional(),
     verificationDate: date.optional(),
+    listExcluded: z.boolean().optional(),
+    manualPosition: z.number().int().min(1).max(150).nullable().optional(),
+    ingameId: optionalId.optional(),
+    length: z.number().int().min(1).max(86400).nullable().optional(),
+    gameVersion: z.string().trim().max(32).optional(),
   }),
   districts: z.object({
     id: id.optional(),
@@ -94,7 +102,8 @@ const permission: Record<keyof typeof schemas, Permission | "head-admin"> = {
   news: "news:write",
 };
 export default defineEventHandler(async (event) => {
-  const resource = getRouterParam(event, "resource") as keyof typeof schemas;
+  const resource = (getRouterParam(event, "resource") ??
+    getRequestURL(event).pathname.split("/").at(-1)) as keyof typeof schemas;
   if (!Object.hasOwn(schemas, resource)) throw createError({ statusCode: 404 });
   const user = await requirePermission(event, permission[resource]);
   const body = await readBody(event);
@@ -121,6 +130,46 @@ export default defineEventHandler(async (event) => {
     : null;
   if (value.id && !before)
     throw createError({ statusCode: 404, message: "Запись не найдена" });
+  if (resource === "extras") {
+    const extra = schemas.extras.parse(value);
+    const level = one<Level>("SELECT * FROM levels WHERE id=?", extra.levelId);
+    if (
+      level?.status === "legacy" &&
+      (!before ||
+        before.levelId !== extra.levelId ||
+        before.districtId !== extra.districtId)
+    )
+      throw createError({
+        statusCode: 400,
+        message: "Новые прохождения для Legacy list не принимаются",
+      });
+  }
+  if (resource === "records") {
+    const record = schemas.records.parse(value);
+    const level = one<Level>("SELECT * FROM levels WHERE id=?", record.levelId);
+    if (before?.deletedAt)
+      throw createError({ statusCode: 409, message: "Рекорд удалён" });
+    if (
+      one(
+        "SELECT id FROM records WHERE playerId=? AND levelId=? AND deletedAt IS NOT NULL",
+        record.playerId,
+        record.levelId,
+      )
+    )
+      throw createError({
+        statusCode: 409,
+        message: "Этот рекорд удалён и защищён от повторного импорта",
+      });
+    if (
+      level?.status === "legacy" &&
+      (!before || record.manualPercent !== before.manualPercent)
+    )
+      throw createError({
+        statusCode: 400,
+        message:
+          "Новые результаты для Legacy list не принимаются. Существующую запись можно исправить без изменения процента или удалить.",
+      });
+  }
   let recordDates: RecordDateFields | undefined;
   if (resource === "records") {
     const record = schemas.records.parse(value);
@@ -229,6 +278,20 @@ export default defineEventHandler(async (event) => {
       if (resource === "players") {
         const p = schemas.players.parse(value);
         if (
+          db()
+            .prepare("SELECT id,name FROM players WHERE id!=?")
+            .all(p.id ?? 0)
+            .some(
+              (row) =>
+                normalizedName((row as { name: string }).name) ===
+                normalizedName(p.name),
+            )
+        )
+          throw createError({
+            statusCode: 409,
+            message: "Этот ник игрока уже занят",
+          });
+        if (
           p.id &&
           before?.gdlId !== null &&
           before?.gdlId !== p.gdlId &&
@@ -290,6 +353,7 @@ export default defineEventHandler(async (event) => {
         delete fields.name;
         delete fields.creator;
         delete fields.video;
+        delete fields.ingameId;
       }
       if (resource === "news") {
         if (before && before.kind !== "news")
@@ -315,6 +379,19 @@ export default defineEventHandler(async (event) => {
             )
             .run(...values).lastInsertRowid,
         );
+      if (resource === "levels" && fields.ingameId && !before?.gdlId) {
+        const duplicate = one<{ id: number }>(
+          "SELECT id FROM levels WHERE ingameId=? AND id!=?",
+          Number(fields.ingameId),
+          savedId!,
+        );
+        if (duplicate)
+          throw createError({
+            statusCode: 409,
+            message:
+              "Уровень с этим ID уже есть в каталоге. Добавьте существующий уровень в лист.",
+          });
+      }
       if (resource !== "news")
         logChange(
           "admin-edit",

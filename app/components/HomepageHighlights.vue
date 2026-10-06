@@ -1,6 +1,10 @@
 <script setup lang="ts">
 import type { Level } from "#shared/types/domain";
-const props = defineProps<{ levels: Level[] }>();
+import type { RegionalFirstVictor } from "#shared/utils/victors";
+const props = defineProps<{
+  levels: Level[];
+  victors?: Record<number, RegionalFirstVictor[]>;
+}>();
 const featured = computed(() => props.levels[0]);
 const runners = computed(() => props.levels.slice(1, 3));
 </script>
@@ -20,9 +24,9 @@ const runners = computed(() => props.levels.slice(1, 3));
         игроками нашего города и области.
       </p>
     </div>
-    <a href="#demonlist" class="jump-link"
+    <NuxtLink to="/demonlist" class="jump-link"
       >Смотреть лист <AppIcon name="arrow" :size="18"
-    /></a>
+    /></NuxtLink>
   </div>
   <div v-if="featured" class="highlights" aria-label="Три сложнейших уровня">
     <div class="highlight-card">
@@ -40,9 +44,19 @@ const runners = computed(() => props.levels.slice(1, 3));
             {{ featured.creator || "Автор не указан"
             }}<span v-if="featured.globalRank"
               ><AppIcon name="globe" :size="16" /> #{{ featured.globalRank }} в
-              мире</span
+              Global Demonlist</span
             >
           </p>
+          <div class="featured-victors">
+            <span
+              v-for="row in (victors?.[featured.id] ?? []).filter(
+                (r) => r.victors.length,
+              )"
+              :key="row.region"
+              >{{ row.region === "spb" ? "СПб" : "ЛО" }} ·
+              {{ row.victors.map((v) => v.name).join(", ") }}</span
+            >
+          </div>
           <span class="spotlight-action"
             >Открыть уровень <AppIcon name="chevron" :size="17"
           /></span>
@@ -67,7 +81,15 @@ const runners = computed(() => props.levels.slice(1, 3));
             ><span>{{ level.creator || "Автор не указан" }}</span
             ><small v-if="level.globalRank"
               ><AppIcon name="globe" :size="14" /> #{{ level.globalRank }} в
-              мире</small
+              Global Demonlist</small
+            ><small
+              v-for="row in (victors?.[level.id] ?? []).filter(
+                (r) => r.victors.length,
+              )"
+              :key="row.region"
+              class="runner-victor"
+              >{{ row.region === "spb" ? "СПб" : "ЛО" }} ·
+              {{ row.victors.map((v) => v.name).join(", ") }}</small
             ></span
           >
           <span class="runner-art"><LevelArtwork :level="level" /></span>
@@ -86,6 +108,17 @@ const runners = computed(() => props.levels.slice(1, 3));
   </div>
 </template>
 <style scoped lang="scss">
+.featured-victors {
+  display: grid;
+  gap: 3px;
+  margin-top: 12px;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.runner-copy .runner-victor {
+  margin-top: 2px;
+  overflow-wrap: anywhere;
+}
 .highlight-card {
   position: relative;
   min-width: 0;
@@ -102,11 +135,11 @@ const runners = computed(() => props.levels.slice(1, 3));
 .intro {
   position: relative;
   isolation: isolate;
-  min-height: 375px;
+  min-height: 240px;
   display: flex;
   align-items: center;
   margin: -50px -40px 0;
-  padding: 62px 40px 50px;
+  padding: 35px 40px 30px;
   overflow: hidden;
 }
 .city-image {
@@ -143,7 +176,7 @@ const runners = computed(() => props.levels.slice(1, 3));
   margin-bottom: 21px;
 }
 .intro h1 {
-  font-size: clamp(44px, 6.2vw, 86px);
+  font-size: clamp(36px, 4.8vw, 64px);
   line-height: 1.025;
   letter-spacing: -0.065em;
   margin-bottom: 22px;
@@ -350,17 +383,17 @@ const runners = computed(() => props.levels.slice(1, 3));
 }
 @media (min-width: 1600px) {
   .intro {
-    min-height: 400px;
+    min-height: 260px;
   }
   .spotlight {
-    min-height: 330px;
+    min-height: 255px;
   }
 }
 @media (max-width: 1050px) {
   .intro {
     margin: -36px -28px 0;
     padding: 48px 28px;
-    min-height: 330px;
+    min-height: 255px;
   }
   .intro h1 {
     font-size: 64px;
@@ -396,7 +429,7 @@ const runners = computed(() => props.levels.slice(1, 3));
   .intro {
     margin: -30px -20px 0;
     padding: 42px 20px;
-    min-height: 305px;
+    min-height: 255px;
   }
   .intro h1 {
     font-size: clamp(38px, 7.9vw, 64px);
@@ -463,7 +496,7 @@ const runners = computed(() => props.levels.slice(1, 3));
 }
 @media (max-width: 540px) {
   .intro {
-    min-height: 275px;
+    min-height: 235px;
     padding-top: 32px;
     padding-bottom: 34px;
   }

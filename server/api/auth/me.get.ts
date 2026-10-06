@@ -4,6 +4,7 @@ export default defineEventHandler(async (event) => {
     ? {
         id: user.id,
         login: user.login,
+        nickname: user.nickname || user.login,
         headAdmin: !!user.headAdmin,
         permissions: user.permissions,
         avatar: user.avatarUrl || user.discordAvatar || user.googleAvatar,

@@ -10,7 +10,7 @@ export const EMPTY_POSITION = 150;
 export const normalizedName = (value: string) =>
   value.normalize("NFKC").trim().replace(/\s+/g, " ").toLowerCase();
 export const effectivePercent = (record: RecordEntry) =>
-  record.active
+  record.active && !record.deletedAt
     ? Math.max(record.manualPercent ?? 0, record.importedPercent ?? 0)
     : 0;
 
@@ -21,21 +21,132 @@ export function completedLevels(data: DataSet): Level[] {
       .map((r) => r.levelId),
   );
   data.extras.forEach((r) => ids.add(r.levelId));
-  return data.levels
-    .filter((l) => (l.verifiedLocal || ids.has(l.id)) && l.globalRank !== null)
+  const eligible = data.levels.filter(
+    (l) => !l.listExcluded && (l.verifiedLocal || ids.has(l.id)),
+  );
+  return orderLevels(eligible);
+}
+
+function orderLevels(eligible: Level[]): Level[] {
+  const global = eligible
+    .filter((l) => l.globalRank !== null)
     .sort((a, b) => a.globalRank! - b.globalRank! || a.id - b.id);
+  const manual = eligible
+    .filter(
+      (l) =>
+        l.globalRank === null &&
+        l.manualPosition !== null &&
+        l.manualPosition !== undefined,
+    )
+    .sort((a, b) => a.manualPosition! - b.manualPosition! || a.id - b.id);
+  const ordered: Level[] = [];
+  while (global.length || manual.length) {
+    if (
+      manual.length &&
+      (!global.length || manual[0]!.manualPosition! <= ordered.length + 1)
+    )
+      ordered.push(manual.shift()!);
+    else ordered.push(global.shift()!);
+  }
+  return ordered;
+}
+
+export type ListTier = "main" | "extended" | "legacy";
+export function listTier(level: Level): ListTier | null {
+  if (level.listExcluded) return null;
+  if (level.status === "legacy") return "legacy";
+  if (
+    (level.status === "main" || level.status === "extended") &&
+    level.localRank &&
+    level.localRank <= 150
+  )
+    return level.localRank <= 75 ? "main" : "extended";
+  return null;
+}
+export const isCurrentLevel = (level: Level) =>
+  listTier(level) === "main" || listTier(level) === "extended";
+export const hasLevelPage = (level: Level) => listTier(level) !== null;
+
+export function reconcileList(
+  data: DataSet,
+  now = new Date().toISOString(),
+): Level[] {
+  const positions = new Map(
+    completedLevels(data).map((level, i) => [level.id, i + 1]),
+  );
+  const proofIds = new Set(
+    data.records
+      .filter((record) => effectivePercent(record) === 100)
+      .map((record) => record.levelId),
+  );
+  data.extras.forEach((extra) => proofIds.add(extra.levelId));
+  return data.levels.map((level) => {
+    const position = positions.get(level.id) ?? null;
+    const current = !level.listExcluded && position !== null && position <= 150;
+    const wasCurrent = level.status === "main" || level.status === "extended";
+    const status: Level["status"] =
+      level.listExcluded || !(level.verifiedLocal || proofIds.has(level.id))
+        ? "catalog"
+        : current
+          ? position <= 75
+            ? "main"
+            : "extended"
+          : wasCurrent || level.status === "legacy"
+            ? "legacy"
+            : "catalog";
+    return {
+      ...level,
+      status,
+      localRank: current ? position : null,
+      enteredAt: current && !wasCurrent ? now : level.enteredAt,
+      exitedAt:
+        status === "legacy"
+          ? level.status === "legacy"
+            ? level.exitedAt
+            : now
+          : null,
+      lastMainRank: current
+        ? position
+        : level.listExcluded
+          ? null
+          : level.lastMainRank,
+      exitReason:
+        status !== "legacy"
+          ? null
+          : position === null
+            ? "Нет активного подтверждённого прохождения или позиции"
+            : "Вне топа-150 СПб",
+    };
+  });
+}
+
+export function rankEntries<T extends { score: number; id: number }>(
+  entries: T[],
+): (T & { rank: number })[] {
+  let previous: number | null = null;
+  let place = 0;
+  return [...entries]
+    .sort((a, b) => a.score - b.score || a.id - b.id)
+    .map((entry) => {
+      if (previous === null || Math.abs(entry.score - previous) > 1e-9)
+        place += 1;
+      previous = entry.score;
+      return { ...entry, rank: place };
+    });
 }
 
 export function hypotheticalPosition(
   level: Level,
   completed: Level[],
 ): number | null {
-  if (level.globalRank === null) return null;
+  if (level.listExcluded) return null;
+  const existing = completed.findIndex((item) => item.id === level.id);
+  if (existing >= 0) return existing + 1;
+  if (level.globalRank === null && !level.manualPosition) return null;
   return (
-    1 +
-    completed.filter(
-      (l) => l.id !== level.id && l.globalRank! < level.globalRank!,
-    ).length
+    orderLevels([...completed, level]).findIndex(
+      (item) => item.id === level.id,
+    ) + 1
   );
 }
 
@@ -93,13 +204,13 @@ export function playerRating(data: DataSet, playerId: number): Ranking {
   for (const record of data.records.filter((r) => r.playerId === playerId)) {
     const level = levels.get(record.levelId),
       percent = effectivePercent(record);
-    if (!level || !percent) continue;
+    if (!level || level.listExcluded || !percent) continue;
     const h = hypotheticalPosition(level, completed);
     if (h === null) continue;
     const position =
       percent === 100
         ? h
-        : level.globalRank! <= 150
+        : level.globalRank !== null && level.globalRank <= 150
           ? progressPosition(h, percent, level.listPercent, level.endPercent)
           : null;
     if (position !== null)

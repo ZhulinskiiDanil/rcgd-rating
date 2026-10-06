@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatPosition } from "#shared/utils/presentation";
 import { progressPosition, WEIGHTS } from "#shared/utils/rating";
 const examplePlace = ref(12),
   exampleProgress = ref(75);
@@ -15,7 +16,8 @@ useHead({ title: "Как считается рейтинг · СПб Demonlist" 
       <div>
         <h1>Как считается рейтинг</h1>
         <p class="page-intro">
-          Шесть сильнейших результатов. Одна формула для всего региона.
+          Рейтинг сделан на основе GD Stats by Lev. Шесть сильнейших результатов
+          — одна формула для всего региона.
         </p>
       </div>
     </header>
@@ -25,7 +27,7 @@ useHead({ title: "Как считается рейтинг · СПб Demonlist" 
         ><a href="#progress"><AppIcon name="trophy" />Прогрессы</a
         ><a href="#districts"><AppIcon name="map" />Районы</a
         ><a href="#sources"><AppIcon name="globe" />Источники</a
-        ><a href="#legacy"><AppIcon name="archive" />Архив и история</a>
+        ><a href="#legacy"><AppIcon name="archive" />Legacy и история</a>
       </nav>
       <div class="rules-content">
         <section id="players" class="rule-section">
@@ -88,12 +90,12 @@ useHead({ title: "Как считается рейтинг · СПб Demonlist" 
             </div>
             <div>
               <dt>T</dt>
-              <dd>Эндинг-процент: последняя возможность умереть</dd>
+              <dd>Конец уровня: последняя возможность умереть</dd>
             </div>
           </dl>
           <p>
-            Лист-процент и эндинг-процент берутся из топа-150 Coreboard. Сам
-            уровень также должен находиться в текущем глобальном топе-150
+            Лист-процент и процент конца уровня берутся из топа-150 Coreboard.
+            Сам уровень также должен находиться в текущем глобальном топе-150
             Demonlist. Прогресс ниже t не учитывается, а c выше T ограничивается
             значением T.
           </p>
@@ -126,7 +128,7 @@ useHead({ title: "Как считается рейтинг · СПб Demonlist" 
               <div class="example-result" aria-live="polite">
                 <span>Условная позиция</span
                 ><strong>{{
-                  exampleResult === null ? "—" : exampleResult.toFixed(2)
+                  exampleResult === null ? "—" : formatPosition(exampleResult)
                 }}</strong>
               </div>
             </div>
@@ -198,16 +200,18 @@ useHead({ title: "Как считается рейтинг · СПб Demonlist" 
           </p>
         </section>
         <section id="legacy" class="rule-section">
-          <h2>Архив и история</h2>
+          <h2>Legacy и история</h2>
           <p>
-            <NuxtLink to="/legacy">Legacy-лист</NuxtLink> хранит уровни,
-            покинувшие местный топ-150. Дата вылета — момент, когда сайт
+            <NuxtLink to="/demonlist?list=legacy">Legacy list</NuxtLink> хранит
+            уровни, покинувшие местный топ-150. Дата вылета — момент, когда сайт
             обнаружил изменение, а не восстановленная историческая дата.
           </p>
           <p>
             В <NuxtLink to="/changelog">истории изменений</NuxtLink> сохраняются
-            перестановки, новые уровни, изменения процентов и рейтингов, рекорды
-            и новости сообщества.
+            постановки и перестановки уровней, переходы между Main list (1–75),
+            Extended list (76–150) и Legacy list, а также изменения мест игроков
+            и районов. Изменение только балла не создаёт событие. Новые рекорды
+            на Legacy-уровнях больше не принимаются.
           </p>
         </section>
       </div>

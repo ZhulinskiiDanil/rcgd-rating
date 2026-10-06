@@ -14,7 +14,8 @@ type CompletionRecord = Pick<
   | "manualPercent"
   | "importedPercent"
   | "achievedAt"
->;
+> &
+  Partial<Pick<RecordEntry, "deletedAt">>;
 export interface VictorData {
   players: Pick<Player, "id" | "name" | "districtId">[];
   districts: District[];
@@ -83,6 +84,7 @@ export function levelVictors(
     if (
       record.levelId !== levelId ||
       !record.active ||
+      record.deletedAt ||
       Math.max(record.manualPercent ?? 0, record.importedPercent ?? 0) !== 100
     )
       continue;
@@ -148,7 +150,9 @@ export function regionalFirstVictors(
         firstDate,
         victors: firstDate
           ? victors.filter((victor) => victor.achievedAt === firstDate)
-          : [],
+          : victors.length === 1
+            ? victors
+            : [],
         hasUndated: dates.includes(null),
         hasCompletions: dates.length > 0,
       };

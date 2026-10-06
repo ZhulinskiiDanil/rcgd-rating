@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { hasLevelPage, rankEntries } from "#shared/utils/rating";
+import { formatPosition, formatScore } from "#shared/utils/presentation";
 const { data, error } = await useCatalog();
 const search = ref(""),
   district = ref(""),
@@ -12,7 +14,7 @@ const districts = computed(
 watch(region, () => {
   district.value = "";
 });
-const players = computed(
+const filteredPlayers = computed(
   () =>
     data.value?.players.filter(
       (p) =>
@@ -20,6 +22,29 @@ const players = computed(
         (!district.value || p.districtId === Number(district.value)) &&
         (!region.value || districts.value.some((d) => d.id === p.districtId)),
     ) ?? [],
+);
+const hasFilters = computed(
+  () => !!(search.value.trim() || district.value || region.value),
+);
+const players = computed(() =>
+  hasFilters.value ? rankEntries(filteredPlayers.value) : filteredPlayers.value,
+);
+const linkedLevels = computed(
+  () =>
+    new Set(
+      data.value?.levels.filter(hasLevelPage).map((level) => level.id) ?? [],
+    ),
+);
+const linkedDistricts = computed(
+  () =>
+    new Set(
+      data.value?.districts
+        .filter(
+          (district) =>
+            district.completionCount + district.legacyCompletionCount > 0,
+        )
+        .map((district) => district.id) ?? [],
+    ),
 );
 const resetFilters = () => {
   search.value = "";
@@ -84,12 +109,14 @@ useHead({ title: "Рейтинг игроков · СПб Demonlist" });
         Не удалось загрузить рейтинг. Обновите страницу.
       </p>
       <div v-else-if="players.length" class="table-wrap" tabindex="0">
-        <table aria-label="Рейтинг игроков, места в общем топе">
+        <table
+          :aria-label="
+            hasFilters ? 'Рейтинг игроков с учётом фильтров' : 'Рейтинг игроков'
+          "
+        >
           <thead>
             <tr>
-              <th scope="col" class="place-col" title="Место в общем рейтинге">
-                Место
-              </th>
+              <th scope="col" class="place-col">Место</th>
               <th scope="col">Игрок</th>
               <th scope="col">Район</th>
               <th scope="col" class="score-col">Балл</th>
@@ -100,7 +127,7 @@ useHead({ title: "Рейтинг игроков · СПб Demonlist" });
             <tr
               v-for="p in players"
               :key="p.id"
-              :class="{ podium: p.rank <= 3 }"
+              :class="{ podium: p.rank <= 3, 'inactive-player': p.inactive }"
             >
               <td>
                 <span class="rank" :class="'rank-' + p.rank">{{ p.rank }}</span>
@@ -112,6 +139,9 @@ useHead({ title: "Рейтинг игроков · СПб Demonlist" });
                       p.name
                     }}</span></NuxtLink
                   >
+                  <span v-if="p.inactive" class="inactive-label"
+                    >Неактивен</span
+                  >
                   <EntityEditButton
                     resource="players"
                     :entity-id="p.id"
@@ -122,20 +152,24 @@ useHead({ title: "Рейтинг игроков · СПб Demonlist" });
               </td>
               <td>
                 <NuxtLink
-                  v-if="p.districtId"
+                  v-if="p.districtId && linkedDistricts.has(p.districtId)"
                   class="district-link"
                   :to="'/districts/' + p.districtId"
                   >{{ p.districtName }}</NuxtLink
-                ><span v-else class="unassigned">Не назначен</span>
+                ><span v-else class="unassigned">{{
+                  p.districtName || "Не назначен"
+                }}</span>
               </td>
-              <td class="score">{{ p.score.toFixed(3) }}</td>
+              <td class="score">{{ formatScore(p.score) }}</td>
               <td>
                 <div v-if="p.top[0]?.levelId" class="best-result">
-                  <NuxtLink :to="'/levels/' + p.top[0].levelId">{{
-                    p.top[0].name
-                  }}</NuxtLink
+                  <NuxtLink
+                    v-if="linkedLevels.has(p.top[0].levelId)"
+                    :to="'/levels/' + p.top[0].levelId"
+                    >{{ p.top[0].name }}</NuxtLink
+                  ><span v-else>{{ p.top[0].name }}</span
                   ><span :class="{ progress: p.top[0].kind === 'progress' }"
-                    >{{ p.top[0].percent }}%</span
+                    >{{ formatPosition(p.top[0].percent) }}%</span
                   >
                 </div>
                 <span v-else class="unassigned">Нет результата</span>
@@ -157,7 +191,7 @@ useHead({ title: "Рейтинг игроков · СПб Demonlist" });
           {{
             search || district || region
               ? "Попробуйте другой никнейм или измените фильтры."
-              : "Игроки появятся здесь после добавления администрацией."
+              : "Игроки появятся здесь после добавления."
           }}
         </p>
         <button
@@ -170,12 +204,19 @@ useHead({ title: "Рейтинг игроков · СПб Demonlist" });
       </div>
     </div>
     <p class="ranking-footnote">
-      В рейтинг входят прохождения и подходящие прогрессы. Фильтры сохраняют
-      место игрока в общем топе.
+      В рейтинг входят прохождения и подходящие прогрессы. При включённых
+      фильтрах места пересчитываются среди выбранных игроков.
     </p>
   </section>
 </template>
 <style scoped lang="scss">
+.inactive-player .player-link,
+.inactive-label {
+  color: var(--danger);
+}
+.inactive-label {
+  font-size: 12px;
+}
 .entity-name {
   display: flex;
   align-items: center;

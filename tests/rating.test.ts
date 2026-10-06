@@ -34,6 +34,9 @@ const level = (id: number, globalRank = id): Level => ({
   ingameId: null,
   length: null,
   status: "catalog",
+  listExcluded: 0,
+  manualPosition: null,
+  gameVersion: "",
   enteredAt: null,
   exitedAt: null,
   lastMainRank: null,
@@ -60,6 +63,7 @@ const record = (
   achievedAt: null,
   dateSource: null,
   sourceVideo: "",
+  deletedAt: null,
   updatedAt: "",
 });
 const player = (id: number, districtId = 1): Player => ({
@@ -70,6 +74,7 @@ const player = (id: number, districtId = 1): Player => ({
   bio: "",
   accountId: null,
   avatarUrl: "",
+  inactive: 0,
 });
 const data = (): DataSet => ({
   levels: Array.from({ length: 160 }, (_, i) => level(i + 1)),

@@ -1,11 +1,27 @@
 <script setup lang="ts">
+import { rankEntries } from "#shared/utils/rating";
+import { formatScore } from "#shared/utils/presentation";
 const { data, error } = await useCatalog();
 const region = ref("");
-const districts = computed(
+const filteredDistricts = computed(
   () =>
     data.value?.districts.filter(
       (d) => !region.value || d.region === region.value,
     ) ?? [],
+);
+const districts = computed(() =>
+  region.value
+    ? [
+        ...rankEntries(
+          filteredDistricts.value.filter(
+            (district) => district.completionCount > 0,
+          ),
+        ),
+        ...filteredDistricts.value.filter(
+          (district) => !district.completionCount,
+        ),
+      ]
+    : filteredDistricts.value,
 );
 useHead({ title: "Рейтинг районов · СПб Demonlist" });
 </script>
@@ -33,10 +49,12 @@ useHead({ title: "Рейтинг районов · СПб Demonlist" });
     <div class="regional-note">
       <AppIcon name="map" />
       <p>
-        В зачёте — <strong>шесть уникальных прохождений</strong> жителей района.
+        В зачёте —
+        <strong>шесть сложнейших уникальных прохождений</strong> жителей района.
         Каждый уровень учитывается один раз, прогрессы не входят в рейтинг.
       </p>
     </div>
+    <DistrictMap v-if="data" :districts="data.districts" />
     <div class="leaderboard panel">
       <div class="filters">
         <label
@@ -53,30 +71,49 @@ useHead({ title: "Рейтинг районов · СПб Demonlist" });
         Не удалось загрузить рейтинг. Обновите страницу.
       </p>
       <div v-else-if="districts.length" class="table-wrap" tabindex="0">
-        <table aria-label="Рейтинг районов, места в общем топе">
+        <table
+          :aria-label="
+            region ? 'Рейтинг районов с учётом фильтра' : 'Рейтинг районов'
+          "
+        >
           <thead>
             <tr>
               <th scope="col">Место</th>
               <th scope="col">Район</th>
               <th scope="col">Территория</th>
               <th scope="col" class="number-col">Игроков</th>
-              <th scope="col" class="number-col">Уникальных прохождений</th>
+              <th scope="col" class="number-col">Пройденных уровней</th>
               <th scope="col" class="number-col">Балл</th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="d in districts" :key="d.id">
               <td>
-                <span class="rank" :class="'rank-' + d.rank">{{ d.rank }}</span>
+                <span
+                  v-if="d.rank !== null"
+                  class="rank"
+                  :class="'rank-' + d.rank"
+                  >{{ d.rank }}</span
+                >
               </td>
               <td>
                 <div class="entity-name">
-                  <NuxtLink class="district-link" :to="'/districts/' + d.id"
+                  <NuxtLink
+                    v-if="d.completionCount + d.legacyCompletionCount > 0"
+                    class="district-link"
+                    :to="'/districts/' + d.id"
                     >{{ d.name }}<AppIcon name="chevron" /></NuxtLink
+                  ><span v-else class="district-name">{{ d.name }}</span
                   ><EntityEditButton
                     resource="districts"
                     :entity-id="d.id"
                     :label="`Редактировать район ${d.name}`"
+                    compact
+                  />
+                  <EntityEditButton
+                    resource="extras"
+                    :defaults="{ districtId: d.id }"
+                    :label="`Добавить прохождение в район ${d.name}`"
                     compact
                   />
                 </div>
@@ -94,7 +131,14 @@ useHead({ title: "Рейтинг районов · СПб Demonlist" });
               </td>
               <td class="number-col muted">{{ d.playerCount }}</td>
               <td class="number-col muted">{{ d.completionCount }}</td>
-              <td class="number-col score">{{ d.score.toFixed(3) }}</td>
+              <td class="number-col score">
+                <span v-if="d.completionCount">{{ formatScore(d.score) }}</span
+                ><span v-else class="empty-rating">{{
+                  d.legacyCompletionCount
+                    ? "Нет прохождений в топ-150"
+                    : "Нет прохождений"
+                }}</span>
+              </td>
             </tr>
           </tbody>
         </table>
@@ -110,7 +154,7 @@ useHead({ title: "Рейтинг районов · СПб Demonlist" });
           {{
             region
               ? "Выберите другую территорию или откройте общий рейтинг."
-              : "Добавленные администрацией районы появятся в рейтинге."
+              : "Добавленные районы появятся в рейтинге."
           }}
         </p>
         <button v-if="region" type="button" @click="region = ''">
@@ -120,11 +164,19 @@ useHead({ title: "Рейтинг районов · СПб Demonlist" });
     </div>
     <p class="ranking-footnote">
       Меньше балл — выше место. Прохождения, добавленные отдельно, учитываются
-      по тем же правилам. Фильтр сохраняет место района в общем топе.
+      по тем же правилам. Фильтр пересчитывает места среди выбранных районов.
     </p>
   </section>
 </template>
 <style scoped lang="scss">
+.district-name {
+  font-weight: 500;
+}
+.empty-rating {
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 400;
+}
 .entity-name {
   display: flex;
   align-items: center;

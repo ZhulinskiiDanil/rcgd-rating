@@ -11,8 +11,10 @@ export default defineEventHandler(async (event) => {
     Number.isSafeInteger(requestedNewsId) && requestedNewsId > 0
       ? requestedNewsId
       : null;
+  const data = dataset();
   return {
-    ...dataset(),
+    ...data,
+    records: data.records.filter((record) => !record.deletedAt),
     accounts: user.headAdmin
       ? all<{
           id: number;

@@ -1,6 +1,9 @@
 <script setup lang="ts">
+import { recordVideoUrl } from "#shared/utils/record-video";
 import {
   completedLevels,
+  hasLevelPage,
+  isCurrentLevel,
   effectivePercent,
   hypotheticalPosition,
 } from "#shared/utils/rating";
@@ -13,7 +16,7 @@ import {
 const id = Number(useRoute().params.id);
 const { data } = await useCatalog();
 const level = computed(() => data.value?.levels.find((l) => l.id === id));
-if (!level.value)
+if (!level.value || !hasLevelPage(level.value))
   throw createError({ statusCode: 404, statusMessage: "Уровень не найден" });
 const records = computed(() =>
   (
@@ -25,6 +28,12 @@ const records = computed(() =>
       compareCompletionDates(a.achievedAt, b.achievedAt),
   ),
 );
+const completionVideo = computed(() => {
+  const record = records.value.find(
+    (r) => effectivePercent({ ...r, note: "" }) === 100 && recordVideoUrl(r),
+  );
+  return record ? recordVideoUrl(record) : "";
+});
 const completions = computed(
   () =>
     records.value.filter((r) => effectivePercent({ ...r, note: "" }) === 100)
@@ -55,7 +64,7 @@ const h = computed(() =>
 const neighbors = computed(() => {
   const ranked =
     data.value?.levels
-      .filter((item) => item.status === level.value?.status && item.localRank)
+      .filter((item) => isCurrentLevel(item) && item.localRank)
       .sort((a, b) => a.localRank! - b.localRank!) ?? [];
   const index = ranked.findIndex((item) => item.id === id);
   return {
@@ -65,10 +74,15 @@ const neighbors = computed(() => {
 });
 const statusLabel = computed(() =>
   level.value?.status === "main"
-    ? "Основной лист"
-    : level.value?.status === "legacy"
-      ? "Legacy-лист"
-      : "Каталог уровней",
+    ? "Main list"
+    : level.value?.status === "extended"
+      ? "Extended list"
+      : "Legacy list",
+);
+const lengthLabel = computed(() =>
+  level.value?.length
+    ? `${Math.floor(level.value.length / 60)}:${String(Math.round(level.value.length % 60)).padStart(2, "0")}`
+    : "Не указана",
 );
 useHead({ title: () => `${level.value?.name} · СПб Demonlist` });
 </script>
@@ -77,74 +91,32 @@ useHead({ title: () => `${level.value?.name} · СПб Demonlist` });
   <section v-if="level && data" class="level-page">
     <header class="detail-toolbar">
       <nav class="breadcrumbs" aria-label="Навигация по уровню">
-        <NuxtLink :to="level.status === 'legacy' ? '/legacy' : '/'"
+        <NuxtLink
+          :to="{
+            path: '/demonlist',
+            query: level.status === 'main' ? {} : { list: level.status },
+          }"
           ><AppIcon :name="level.status === 'legacy' ? 'archive' : 'list'" />{{
             statusLabel
           }}</NuxtLink
         >
         <AppIcon name="chevron" /><span>{{ level.name }}</span>
       </nav>
-      <EntityEditButton
-        resource="levels"
-        :entity-id="level.id"
-        label="Редактировать уровень"
-      />
+      <div class="level-actions">
+        <EntityEditButton
+          resource="levels"
+          :entity-id="level.id"
+          label="Редактировать уровень"
+        /><EntityDeleteButton
+          resource="levels"
+          :entity-id="level.id"
+          label="Убрать из листа"
+        />
+      </div>
     </header>
     <div class="level-hero panel">
       <div class="hero-artwork">
-        <LevelArtwork :level="level" eager />
-        <a
-          v-if="level.showcaseVideo"
-          :href="level.showcaseVideo"
-          target="_blank"
-          rel="noopener noreferrer"
-          class="showcase-link"
-        >
-          <span class="play-icon"><AppIcon name="play" /></span
-          ><span>Смотреть видео<AppIcon name="external" /></span>
-        </a>
-      </div>
-      <div class="hero-content">
-        <div class="level-positions">
-          <span v-if="level.localRank" class="local-rank"
-            >#{{ level.localRank }} <span>в СПб</span></span
-          >
-          <span v-else class="unranked">Пока без прохождения в листе</span>
-          <span v-if="level.globalRank" class="global-rank"
-            ><AppIcon name="globe" />#{{ level.globalRank }} в мире</span
-          >
-        </div>
-        <h1>{{ level.name }}</h1>
-        <p class="creator">
-          {{
-            level.creator
-              ? `Автор / паблишер: ${level.creator}`
-              : "Автор не указан"
-          }}
-        </p>
-        <div v-if="level.verificationRegion" class="regional-verification">
-          <AppIcon name="check" />
-          <div>
-            <strong
-              >Верификация
-              {{
-                level.verificationRegion === "spb"
-                  ? "в Санкт-Петербурге"
-                  : "в Ленинградской области"
-              }}</strong
-            >
-            <span>
-              <NuxtLink v-if="verifier" :to="`/players/${verifier.id}`">{{
-                verifier.name
-              }}</NuxtLink>
-              <time
-                v-if="level.verificationDate"
-                :datetime="level.verificationDate"
-                >{{ formatCompletionDate(level.verificationDate) }}</time
-              >
-            </span>
-          </div>
-        </div>
+        <LevelVideo :level="level" :fallback-video="completionVideo" />
         <section v-if="overallFirst?.hasCompletions" class="first-victor">
           <h2>
             {{
@@ -184,17 +156,49 @@ useHead({ title: () => `${level.value?.name} · СПб Demonlist` });
             :datetime="overallFirst.firstDate"
             >{{ formatCompletionDate(overallFirst.firstDate) }}</time
           >
-          <p v-if="overallFirst.firstDate && overallFirst.hasUndated">
-            По известным датам. Есть прохождения без даты.
-          </p>
-          <p v-else-if="!overallFirst.firstDate">
-            {{
-              overallFirst.knownVictors.length > 1
-                ? "Даты не указаны — порядок первых прохождений пока неизвестен."
-                : "Дата первого прохождения не указана."
-            }}
-          </p>
         </section>
+      </div>
+      <div class="hero-content">
+        <div class="level-positions">
+          <span v-if="level.localRank" class="local-rank"
+            >#{{ level.localRank }} <span>в СПб</span></span
+          >
+          <span v-else class="unranked">Legacy list</span>
+          <span v-if="level.globalRank" class="global-rank"
+            ><AppIcon name="globe" />#{{ level.globalRank }} в Global
+            Demonlist</span
+          >
+        </div>
+        <h1>{{ level.name }}</h1>
+        <p class="creator">
+          {{
+            level.creator ? `Опубликовано: ${level.creator}` : "Автор не указан"
+          }}
+        </p>
+        <div v-if="level.verificationRegion" class="regional-verification">
+          <AppIcon name="check" />
+          <div>
+            <strong
+              >Верификация
+              {{
+                level.verificationRegion === "spb"
+                  ? "в Санкт-Петербурге"
+                  : "в Ленинградской области"
+              }}</strong
+            >
+            <span>
+              <NuxtLink v-if="verifier" :to="`/players/${verifier.id}`">{{
+                verifier.name
+              }}</NuxtLink>
+              <time
+                v-if="level.verificationDate"
+                :datetime="level.verificationDate"
+                >{{ formatCompletionDate(level.verificationDate) }}</time
+              >
+            </span>
+          </div>
+        </div>
+
         <RegionalVictors :rows="firstVictors" />
         <div class="hero-facts">
           <div>
@@ -206,8 +210,16 @@ useHead({ title: () => `${level.value?.name} · СПб Demonlist` });
             ><span>Прогрессы</span>
           </div>
           <div>
-            <strong>{{ level.ingameId || "—" }}</strong
+            <strong class="entity-id">{{ level.ingameId || "—" }}</strong
             ><span>ID в игре</span>
+          </div>
+          <div>
+            <strong>{{ lengthLabel }}</strong
+            ><span>Длина</span>
+          </div>
+          <div>
+            <strong>{{ level.gameVersion || "Не указана" }}</strong
+            ><span>Версия игры</span>
           </div>
         </div>
         <div class="level-links">
@@ -228,15 +240,12 @@ useHead({ title: () => `${level.value?.name} · СПб Demonlist` });
           <h2>Прохождения и прогрессы</h2>
           <span class="count">{{ records.length }}</span>
           <EntityEditButton
+            v-if="level.status !== 'legacy'"
             resource="records"
             label="Добавить рекорд"
             :defaults="{ levelId: level.id }"
           />
         </div>
-        <p v-if="level.verifiedLocal" class="verification-note">
-          <AppIcon name="check" />Прохождение в регионе подтверждено таблицей
-          или администрацией. Персональные рекорды добавляются отдельно.
-        </p>
         <RecordsTable
           :records="records"
           :players="data.players"
@@ -244,64 +253,59 @@ useHead({ title: () => `${level.value?.name} · СПб Demonlist` });
         />
       </section>
       <aside class="threshold-panel panel">
-        <h2>Зачёт прогресса</h2>
-        <dl>
-          <div>
-            <dt>Лист-процент <span>t</span></dt>
-            <dd>
-              {{ level.listPercent === null ? "—" : level.listPercent + "%" }}
-            </dd>
-          </div>
-          <div>
-            <dt>Эндинг-процент <span>T</span></dt>
-            <dd>
-              {{ level.endPercent === null ? "—" : level.endPercent + "%" }}
-            </dd>
-          </div>
-          <div>
-            <dt>Место для расчёта <span>h</span></dt>
-            <dd>{{ h ?? "—" }}</dd>
-          </div>
-        </dl>
-        <p v-if="level.globalRank === null">
-          Рейтинг прогресса станет доступен после сопоставления уровня с
-          глобальным листом.
-        </p>
-        <p v-else-if="level.globalRank > 150" class="threshold-warning">
-          Прогрессы не участвуют в рейтинге: уровень вне глобального топа-150.
-        </p>
-        <p v-else-if="level.listPercent === null || level.endPercent === null">
-          Проценты Coreboard ещё не сопоставлены. Прогрессы пока не учитываются.
-        </p>
-        <p v-else>
-          Место h — позиция, которую уровень занял бы среди пройденных в СПб и
-          области.
-        </p>
-        <NuxtLink to="/rules" class="rules-link"
-          >Как считается рейтинг<AppIcon name="chevron"
-        /></NuxtLink>
-        <div v-if="level.exitedAt" class="legacy-note">
-          <AppIcon name="archive" />
-          <div>
-            <strong
-              >В архиве с
-              {{
-                new Date(level.exitedAt).toLocaleDateString("ru-RU", {
-                  timeZone: "Europe/Moscow",
-                })
-              }}</strong
-            >
-            <p>
-              {{ level.exitReason }}. Последнее место в основном листе:
-              {{
-                level.lastMainRank ? "#" + level.lastMainRank : "неизвестно"
-              }}.
-            </p>
-            <span>Дата обнаружения вылета сайтом</span>
-          </div>
-        </div>
+        <template v-if="level.status === 'legacy'"
+          ><h2>Legacy</h2>
+          <p>Новые рекорды для этого уровня больше не принимаются.</p>
+          <p v-if="level.exitedAt" class="muted">
+            Вылетел
+            {{
+              new Date(level.exitedAt).toLocaleDateString("ru-RU", {
+                timeZone: "Europe/Moscow",
+              })
+            }}.
+          </p></template
+        >
+        <template v-else
+          ><h2>Зачёт прогресса</h2>
+          <dl>
+            <div>
+              <dt>Лист-процент</dt>
+              <dd>
+                {{ level.listPercent === null ? "—" : level.listPercent + "%" }}
+              </dd>
+            </div>
+            <div>
+              <dt>Конец уровня</dt>
+              <dd>
+                {{ level.endPercent === null ? "—" : level.endPercent + "%" }}
+              </dd>
+            </div>
+            <div>
+              <dt>Место для расчёта</dt>
+              <dd>{{ h ?? "—" }}</dd>
+            </div>
+          </dl>
+          <p v-if="level.globalRank === null">
+            Прогрессы станут доступны после появления уровня в глобальном листе.
+          </p>
+          <p v-else-if="level.globalRank > 150">
+            Прогрессы не участвуют в рейтинге: уровень вне глобального топа-150.
+          </p>
+          <p
+            v-else-if="level.listPercent === null || level.endPercent === null"
+          >
+            Проценты Coreboard пока не сопоставлены.
+          </p>
+          <p v-else>
+            Для расчёта берётся место, которое уровень занял бы среди пройденных
+            в городе и области.
+          </p>
+          <NuxtLink to="/rules" class="rules-link"
+            >Как считается рейтинг<AppIcon name="chevron" /></NuxtLink
+        ></template>
       </aside>
     </div>
+    <LevelHistory :level-id="level.id" />
     <nav
       v-if="neighbors.previous || neighbors.next"
       class="level-pagination"
@@ -332,6 +336,16 @@ useHead({ title: () => `${level.value?.name} · СПб Demonlist` });
 </template>
 
 <style scoped lang="scss">
+.level-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.hero-facts .entity-id {
+  white-space: nowrap;
+  overflow-wrap: normal;
+  word-break: normal;
+}
 .detail-toolbar {
   display: flex;
   align-items: center;
@@ -344,8 +358,8 @@ useHead({ title: () => `${level.value?.name} · СПб Demonlist` });
 }
 .first-victor {
   width: 100%;
-  margin-bottom: 26px;
-  padding: 18px 20px;
+  margin: 0;
+  padding: 24px;
   border-left: 3px solid var(--accent);
   background: var(--accent-soft);
   h2 {
@@ -403,7 +417,7 @@ useHead({ title: () => `${level.value?.name} · СПб Demonlist` });
 }
 .hero-artwork {
   min-width: 0;
-  min-height: 520px;
+  align-self: start;
   position: relative;
   :deep(.level-artwork) {
     height: 100%;

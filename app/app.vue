@@ -28,16 +28,15 @@ useHead(() => ({
   ],
 }));
 const navigation = [
-  { to: "/", text: "Демонлист" },
+  { to: "/demonlist", text: "Демонлист" },
   { to: "/players", text: "Игроки" },
   { to: "/districts", text: "Районы" },
-  { to: "/legacy", text: "Legacy" },
   { to: "/changelog", text: "История" },
   { to: "/rules", text: "Правила" },
 ];
 const active = (path: string) =>
-  path === "/"
-    ? route.path === "/" || route.path.startsWith("/levels/")
+  path === "/demonlist"
+    ? route.path === "/demonlist" || route.path.startsWith("/levels/")
     : route.path.startsWith(path);
 </script>
 <template>
@@ -100,9 +99,11 @@ const active = (path: string) =>
             :class="{ 'is-signed-in': user }"
             ><UserAvatar
               v-if="user"
-              :name="user.login"
+              :name="user.nickname || user.login"
               :url="user.avatar"
-            /><span>{{ user?.login || "Войти" }}</span></NuxtLink
+            /><span>{{
+              user?.nickname || user?.login || "Войти"
+            }}</span></NuxtLink
           >
           <button
             class="menu-toggle"
@@ -213,6 +214,11 @@ const active = (path: string) =>
   --hero-opacity: 0.65;
   --hero-filter: brightness(0.52) saturate(0.75);
   color-scheme: dark;
+}
+:global(.entity-id) {
+  white-space: nowrap;
+  overflow-wrap: normal;
+  word-break: normal;
 }
 :global(body) {
   margin: 0;

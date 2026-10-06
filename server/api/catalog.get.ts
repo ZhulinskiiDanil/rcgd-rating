@@ -4,10 +4,12 @@ export default defineEventHandler(() => {
   const data = dataset();
   return {
     ...data,
-    records: data.records.map(({ note, ...r }) => ({
-      ...r,
-      fromSheet: note.startsWith("Источник: исходная таблица СПб;"),
-    })),
+    records: data.records
+      .filter((r) => !r.deletedAt)
+      .map(({ note, ...r }) => ({
+        ...r,
+        fromSheet: note.startsWith("Источник: исходная таблица СПб;"),
+      })),
     ...rankings(data),
     sync:
       one<{ status: string; finishedAt: string | null; error: string | null }>(

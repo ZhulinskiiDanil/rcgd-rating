@@ -8,11 +8,9 @@ export default defineEventHandler((event) => {
     kind: string;
     entityId: number | null;
     title: string;
-    beforeJson: string;
-    afterJson: string;
     createdAt: string;
   }>(
-    `SELECT id,kind,entityId,title,beforeJson,afterJson,createdAt FROM changes WHERE public=1 ${kind ? "AND kind=?" : ""} ORDER BY id DESC LIMIT 50 OFFSET ?`,
+    `SELECT id,kind,entityId,title,createdAt FROM changes WHERE public=1 AND kind IN ('level','player-rating','district-rating') ${kind ? "AND kind=?" : ""} ORDER BY id DESC LIMIT 50 OFFSET ?`,
     ...(kind ? [kind] : []),
     (page - 1) * 50,
   );

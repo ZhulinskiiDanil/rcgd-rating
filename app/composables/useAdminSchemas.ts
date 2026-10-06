@@ -7,6 +7,7 @@ export function useAdminSchemas(data: Ref<AdminData | null | undefined>) {
       data.value?.levels.map((l) => ({
         value: l.id,
         label: `${l.name} · ${l.creator} · глобал ${l.globalRank ?? "—"} · ID ${l.id}`,
+        disabled: l.status === "legacy",
       })) ?? [],
   );
   const playerOptions = computed(
@@ -50,6 +51,11 @@ export function useAdminSchemas(data: Ref<AdminData | null | undefined>) {
         },
         { key: "bio", label: "Описание", type: "textarea" },
         {
+          key: "inactive",
+          label: "Неактивный игрок — выделять красным",
+          type: "checkbox",
+        },
+        {
           key: "avatarUrl",
           label: "Аватар игрока",
           type: "image",
@@ -78,7 +84,22 @@ export function useAdminSchemas(data: Ref<AdminData | null | undefined>) {
           required: true,
           help: "Название и автор импортированного уровня обновляются из глобала.",
         },
-        { key: "creator", label: "Автор / паблишер" },
+        { key: "creator", label: "Опубликовано" },
+        { key: "ingameId", label: "ID уровня в игре", type: "number" },
+        {
+          key: "manualPosition",
+          label: "Место в СПб до появления в глобале",
+          type: "number",
+          help: "Для собственного уровня без глобальной позиции. Укажи место от 1 до 150 и добавь прохождение. После появления в Global Demonlist порядок обновится автоматически.",
+        },
+        { key: "length", label: "Длина уровня, секунд", type: "number" },
+        { key: "gameVersion", label: "Версия игры", help: "Например: 2.2" },
+        {
+          key: "listExcluded",
+          label: "Исключён из СПб-листа",
+          type: "checkbox",
+          help: "Сними флажок, чтобы вернуть удалённый уровень. Данные прохождений сохраняются.",
+        },
         {
           key: "previewImage",
           label: "Превью уровня",
@@ -182,7 +203,7 @@ export function useAdminSchemas(data: Ref<AdminData | null | undefined>) {
         },
         {
           key: "manualPercent",
-          label: "Принятый администрацией результат, %",
+          label: "Результат, %",
           type: "number",
           help: "100 — прохождение. Пусто — только результат из глобала.",
         },
@@ -217,12 +238,14 @@ export function useAdminSchemas(data: Ref<AdminData | null | undefined>) {
         { key: "reviewNeeded", label: "Проверка" },
       ],
       rows:
-        data.value?.records.map((r) => ({
-          ...r,
-          playerName: data.value?.players.find((p) => p.id === r.playerId)
-            ?.name,
-          levelName: data.value?.levels.find((l) => l.id === r.levelId)?.name,
-        })) ?? [],
+        data.value?.records
+          .filter((r) => !r.deletedAt)
+          .map((r) => ({
+            ...r,
+            playerName: data.value?.players.find((p) => p.id === r.playerId)
+              ?.name,
+            levelName: data.value?.levels.find((l) => l.id === r.levelId)?.name,
+          })) ?? [],
     },
     extras: {
       fields: [

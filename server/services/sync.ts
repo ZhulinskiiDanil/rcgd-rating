@@ -16,7 +16,7 @@ import {
   type GlobalRecord,
   type Threshold,
 } from "./sources";
-import { normalizedName } from "../../shared/utils/rating";
+import { normalizedName, reconcileList } from "../../shared/utils/rating";
 import type {
   Level,
   Player,
@@ -96,6 +96,7 @@ export function importAchievements(
         unmatched.push(`${entry.name}: ${result.name}`);
         continue;
       }
+      if (level.status === "legacy") continue;
       if (type === "players")
         db()
           .prepare(
@@ -149,8 +150,59 @@ export function applyGlobal(
     ]),
   );
   const incoming = new Set(levels.map((l) => l.id));
+  const unlinked = all<Level>("SELECT * FROM levels WHERE gdlId IS NULL");
+  const matched = new Set<number>();
+  for (const level of levels) {
+    if (existing.has(level.id)) continue;
+    const idMatches = level.ingame_id
+      ? unlinked.filter(
+          (local) =>
+            !matched.has(local.id) && local.ingameId === level.ingame_id,
+        )
+      : [];
+    let match =
+      idMatches.length === 1 &&
+      levels.filter((item) => item.ingame_id === level.ingame_id).length === 1
+        ? idMatches[0]
+        : undefined;
+    if (!match && !idMatches.length) {
+      const nameMatches = unlinked.filter(
+        (local) =>
+          !matched.has(local.id) &&
+          normalizedName(local.name) === normalizedName(level.name) &&
+          !(
+            local.ingameId &&
+            level.ingame_id &&
+            local.ingameId !== level.ingame_id
+          ),
+      );
+      if (
+        nameMatches.length === 1 &&
+        levels.filter(
+          (item) => normalizedName(item.name) === normalizedName(level.name),
+        ).length === 1
+      )
+        match = nameMatches[0];
+    }
+    if (match) {
+      db()
+        .prepare("UPDATE levels SET gdlId=?,manualPosition=NULL WHERE id=?")
+        .run(level.id, match.id);
+      matched.add(match.id);
+      existing.set(level.id, { ...match, gdlId: level.id });
+      logChange(
+        "global-link",
+        match.id,
+        `${match.name}: уровень сопоставлен с Global Demonlist`,
+        null,
+        { gdlId: level.id },
+        null,
+        false,
+      );
+    }
+  }
   const upsert = db().prepare(
-    `INSERT INTO levels(gdlId,name,globalRank,creator,video,ingameId,length) VALUES (?,?,?,?,?,?,?) ON CONFLICT(gdlId) DO UPDATE SET name=excluded.name,globalRank=excluded.globalRank,creator=excluded.creator,video=excluded.video,ingameId=excluded.ingameId,length=excluded.length`,
+    `INSERT INTO levels(gdlId,name,globalRank,creator,video,ingameId,length) VALUES (?,?,?,?,?,?,?) ON CONFLICT(gdlId) DO UPDATE SET name=excluded.name,globalRank=excluded.globalRank,creator=excluded.creator,video=excluded.video,ingameId=excluded.ingameId,length=COALESCE(excluded.length,levels.length)`,
   );
   for (const l of levels)
     upsert.run(
@@ -210,6 +262,9 @@ export function applyGlobal(
 }
 
 export function mergeRecords(playerId: number, incoming: GlobalRecord[]) {
+  const resolvedLevels = new Map(
+    reconcileList(dataset()).map((level) => [level.id, level]),
+  );
   const levels = new Map(
     all<Level>("SELECT * FROM levels WHERE gdlId IS NOT NULL").map((l) => [
       l.gdlId,
@@ -232,6 +287,8 @@ export function mergeRecords(playerId: number, incoming: GlobalRecord[]) {
     if (!levelId) continue;
     seen.add(levelId);
     const previous = old.find((r) => r.levelId === levelId);
+    if (previous?.deletedAt || resolvedLevels.get(levelId)?.status === "legacy")
+      continue;
     if (
       previous?.importedPercent &&
       previous.importedPercent > record.percent
@@ -275,7 +332,13 @@ export function mergeRecords(playerId: number, incoming: GlobalRecord[]) {
       );
   }
   for (const record of old)
-    if (record.importedId && !seen.has(record.levelId) && !record.missing) {
+    if (
+      record.importedId &&
+      !record.deletedAt &&
+      resolvedLevels.get(record.levelId)?.status !== "legacy" &&
+      !seen.has(record.levelId) &&
+      !record.missing
+    ) {
       db()
         .prepare("UPDATE records SET missing=1,reviewNeeded=1 WHERE id=?")
         .run(record.id);

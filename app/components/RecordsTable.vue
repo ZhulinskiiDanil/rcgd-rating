@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { Level, Player, RecordEntry } from "#shared/types/domain";
-import { effectivePercent } from "#shared/utils/rating";
+import { effectivePercent, hasLevelPage } from "#shared/utils/rating";
+import { formatPosition } from "#shared/utils/presentation";
 import { recordVideoUrl } from "#shared/utils/record-video";
 import { formatCompletionDate } from "#shared/utils/victors";
 type PublicRecord = Omit<RecordEntry, "note"> & { fromSheet?: boolean };
@@ -8,18 +9,17 @@ const props = defineProps<{
   records: PublicRecord[];
   players: (Player & { avatar?: string | null })[];
   levels: Level[];
+  highlightCompletions?: boolean;
+  firstRecordIds?: number[];
 }>();
 const percent = (r: PublicRecord) => effectivePercent({ ...r, note: "" });
 const playerMap = computed(() => new Map(props.players.map((p) => [p.id, p])));
 const levelMap = computed(() => new Map(props.levels.map((l) => [l.id, l])));
 const video = recordVideoUrl;
-function source(record: PublicRecord) {
-  if (record.manualPercent && record.importedPercent)
-    return "Глобал + администрация";
-  if (record.manualPercent)
-    return record.fromSheet ? "Таблица СПб" : "Администрация";
-  return "Глобал";
-}
+const linkedLevels = computed(
+  () => new Set(props.levels.filter(hasLevelPage).map((level) => level.id)),
+);
+const firstIds = computed(() => new Set(props.firstRecordIds ?? []));
 </script>
 <template>
   <div v-if="records.length" class="table-wrap records-wrap">
@@ -29,12 +29,18 @@ function source(record: PublicRecord) {
           <th>Игрок / уровень</th>
           <th>Результат</th>
           <th>Дата</th>
-          <th>Источник</th>
           <th><span class="video-heading">Видео</span></th>
         </tr>
       </thead>
       <tbody>
-        <tr v-for="r in records" :key="r.id">
+        <tr
+          v-for="r in records"
+          :key="r.id"
+          :class="{
+            'completed-record': highlightCompletions && percent(r) === 100,
+            'first-record': highlightCompletions && firstIds.has(r.id),
+          }"
+        >
           <td>
             <div class="record-person">
               <UserAvatar
@@ -45,9 +51,15 @@ function source(record: PublicRecord) {
                 <NuxtLink :to="`/players/${r.playerId}`" class="player-name">{{
                   playerMap.get(r.playerId)?.name || "Игрок"
                 }}</NuxtLink>
-                <NuxtLink :to="`/levels/${r.levelId}`" class="level-name">{{
+                <NuxtLink
+                  v-if="linkedLevels.has(r.levelId)"
+                  :to="`/levels/${r.levelId}`"
+                  class="level-name"
+                  >{{ levelMap.get(r.levelId)?.name || "Уровень" }}</NuxtLink
+                >
+                <span v-else class="level-name">{{
                   levelMap.get(r.levelId)?.name || "Уровень"
-                }}</NuxtLink>
+                }}</span>
               </div>
             </div>
           </td>
@@ -55,12 +67,17 @@ function source(record: PublicRecord) {
             <div class="result" :class="{ complete: percent(r) === 100 }">
               <span
                 ><AppIcon v-if="percent(r) === 100" name="check" />{{
-                  percent(r)
+                  formatPosition(percent(r))
                 }}%</span
               >
               <div class="progress-track" aria-hidden="true">
                 <span :style="{ width: percent(r) + '%' }" />
               </div>
+              <small
+                v-if="highlightCompletions && firstIds.has(r.id)"
+                class="first-note"
+                >Первое прохождение в регионе</small
+              >
             </div>
           </td>
           <td class="record-date">
@@ -71,15 +88,6 @@ function source(record: PublicRecord) {
             <small v-if="r.achievedAt && r.dateSource === 'video'"
               >Публикация видео · МСК</small
             >
-            <small v-else-if="r.achievedAt && r.dateSource === 'manual'"
-              >Указана администрацией</small
-            >
-          </td>
-          <td class="source-cell">
-            <span>{{ source(r) }}</span
-            ><small v-if="r.missing"
-              >Отсутствует в глобале, сохранён локально</small
-            ><small v-if="r.reviewNeeded">Ожидает решения администрации</small>
           </td>
           <td class="video-cell">
             <div class="record-actions">
@@ -98,6 +106,7 @@ function source(record: PublicRecord) {
                 :label="`Редактировать рекорд ${playerMap.get(r.playerId)?.name || ''}`"
                 compact
               />
+              <EntityDeleteButton resource="records" :entity-id="r.id" />
             </div>
           </td>
         </tr>
@@ -108,8 +117,8 @@ function source(record: PublicRecord) {
     <AppIcon name="trophy" />
     <h3>Рекордов пока нет</h3>
     <p>
-      Подтверждённые прохождения и прогрессы появятся здесь после добавления
-      администрацией или импорта из глобала.
+      Прохождения и прогрессы появятся здесь после добавления или импорта из
+      глобала.
     </p>
   </div>
 </template>
@@ -204,18 +213,25 @@ function source(record: PublicRecord) {
     background: currentColor;
   }
 }
-.source-cell {
-  color: var(--muted);
-  font-size: 13px;
-  min-width: 110px;
-  max-width: 200px;
-  small {
-    display: block;
-    color: var(--warm);
-    font-size: 12px;
-    line-height: 1.5;
-    margin-top: 5px;
+.records-table tbody tr.completed-record td {
+  border-block: 1px solid var(--success);
+  &:first-child {
+    border-left: 1px solid var(--success);
   }
+  &:last-child {
+    border-right: 1px solid var(--success);
+  }
+}
+.records-table tbody tr.first-record td {
+  border-color: var(--warm);
+  background: color-mix(in srgb, var(--warm), transparent 94%);
+}
+.first-note {
+  display: block;
+  color: var(--warm);
+  font-size: 12px;
+  margin-top: 8px;
+  line-height: 1.4;
 }
 .record-date {
   white-space: nowrap;
@@ -298,9 +314,6 @@ function source(record: PublicRecord) {
       width: 25px;
       height: 25px;
     }
-  }
-  .source-cell {
-    min-width: 100px;
   }
 }
 </style>

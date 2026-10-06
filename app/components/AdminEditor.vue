@@ -15,8 +15,7 @@ const selectedRow = ref<Record<string, unknown>>();
 const editing = ref(false);
 const formVersion = ref(0);
 const formBusy = ref(false);
-const removing = ref(false);
-const isBusy = computed(() => formBusy.value || removing.value);
+const isBusy = computed(() => formBusy.value);
 const error = ref("");
 const success = ref("");
 const search = ref("");
@@ -69,20 +68,6 @@ function saved() {
   success.value = "Сохранено";
   emit("saved");
 }
-async function removeExtra(id: unknown) {
-  if (isBusy.value) return;
-  error.value = "";
-  removing.value = true;
-  try {
-    await $fetch(`/api/admin/extras/${id}`, { method: "DELETE" });
-    if (selectedRow.value?.id === id) editing.value = false;
-    emit("saved");
-  } catch (cause: any) {
-    error.value = cause.data?.message || "Не удалось удалить";
-  } finally {
-    removing.value = false;
-  }
-}
 function cellValue(row: Record<string, unknown>, key: string) {
   const value = row[key];
   if (key === "permissions" && row.headAdmin) return "Полный доступ";
@@ -91,10 +76,12 @@ function cellValue(row: Record<string, unknown>, key: string) {
   if (key === "status")
     return (
       (
-        { main: "Основной", legacy: "Legacy", catalog: "Каталог" } as Record<
-          string,
-          string
-        >
+        {
+          main: "Main list",
+          extended: "Extended list",
+          legacy: "Legacy list",
+          catalog: "Каталог",
+        } as Record<string, string>
       )[String(value)] || value
     );
   if (key === "region")
@@ -163,7 +150,7 @@ function cellValue(row: Record<string, unknown>, key: string) {
               v-for="c in columns"
               :key="c.key"
               :class="{
-                'id-cell': c.key === 'id',
+                'id-cell': c.key === 'id' || c.key.endsWith('Id'),
                 'name-cell': [
                   'name',
                   'login',
@@ -185,15 +172,17 @@ function cellValue(row: Record<string, unknown>, key: string) {
             <td class="action-cell">
               <div>
                 <button :disabled="isBusy" @click="edit(row)">Изменить</button
-                ><button
-                  v-if="resource === 'extras'"
-                  class="delete-button"
+                ><EntityDeleteButton
+                  v-if="
+                    resource === 'levels' ||
+                    resource === 'records' ||
+                    resource === 'extras'
+                  "
+                  :resource="resource"
+                  :entity-id="Number(row.id)"
                   :disabled="isBusy"
-                  type="button"
-                  @click="removeExtra(row.id)"
-                >
-                  Удалить
-                </button>
+                  @saved="saved"
+                />
               </div>
             </td>
           </tr>
@@ -344,6 +333,9 @@ td {
   padding: 18px 20px;
 }
 .id-cell {
+  white-space: nowrap;
+  overflow-wrap: normal;
+  word-break: normal;
   color: var(--muted);
   width: 42px;
   font-variant-numeric: tabular-nums;

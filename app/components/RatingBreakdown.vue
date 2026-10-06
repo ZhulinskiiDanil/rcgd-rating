@@ -1,15 +1,24 @@
 <script setup lang="ts">
-import type { Ranking } from "#shared/types/domain";
-import { WEIGHTS } from "#shared/utils/rating";
+import type { Level, Ranking } from "#shared/types/domain";
+import { hasLevelPage } from "#shared/utils/rating";
+import { formatScore, formatPosition } from "#shared/utils/presentation";
 import type { Victor } from "#shared/utils/victors";
-defineProps<{ rating: Ranking; victorsByLevel?: Record<number, Victor[]> }>();
+const props = defineProps<{
+  rating: Ranking;
+  levels?: Level[];
+  victorsByLevel?: Record<number, Victor[]>;
+}>();
+const linkedLevels = computed(
+  () =>
+    new Set((props.levels ?? []).filter(hasLevelPage).map((level) => level.id)),
+);
 </script>
 <template>
   <div class="breakdown panel">
     <div class="breakdown-heading">
       <div>
         <AppIcon name="trophy" /><span>Рейтинговый балл</span
-        ><strong>{{ rating.score.toFixed(3) }}</strong>
+        ><strong>{{ formatScore(rating.score) }}</strong>
       </div>
       <NuxtLink to="/rules">Как считается</NuxtLink>
     </div>
@@ -20,8 +29,6 @@ defineProps<{ rating: Ranking; victorsByLevel?: Record<number, Victor[]> }>();
             <th scope="col">Слот</th>
             <th scope="col">Результат</th>
             <th scope="col" class="number-col">Условная позиция</th>
-            <th scope="col" class="number-col">Вес</th>
-            <th scope="col" class="number-col">Вклад в балл</th>
           </tr>
         </thead>
         <tbody>
@@ -35,16 +42,17 @@ defineProps<{ rating: Ranking; victorsByLevel?: Record<number, Victor[]> }>();
             </td>
             <td>
               <div class="result">
-                <NuxtLink v-if="r.levelId" :to="'/levels/' + r.levelId">{{
-                  r.name
-                }}</NuxtLink
+                <NuxtLink
+                  v-if="r.levelId && linkedLevels.has(r.levelId)"
+                  :to="'/levels/' + r.levelId"
+                  >{{ r.name }}</NuxtLink
                 ><span v-else>{{ r.name }}</span
                 ><span
                   v-if="r.kind !== 'empty'"
                   class="percent"
                   :class="{ progress: r.kind === 'progress' }"
                   ><AppIcon v-if="r.kind === 'completion'" name="check" />{{
-                    r.percent
+                    formatPosition(r.percent)
                   }}%</span
                 >
               </div>
@@ -53,10 +61,8 @@ defineProps<{ rating: Ranking; victorsByLevel?: Record<number, Victor[]> }>();
                 :victors="victorsByLevel[r.levelId] ?? []"
               />
             </td>
-            <td class="number-col position">{{ r.position.toFixed(3) }}</td>
-            <td class="number-col weight">{{ WEIGHTS[i] }}<span>/42</span></td>
-            <td class="number-col contribution">
-              {{ ((r.position * WEIGHTS[i]!) / 42).toFixed(3) }}
+            <td class="number-col position">
+              {{ formatPosition(r.position) }}
             </td>
           </tr>
         </tbody>
@@ -106,7 +112,7 @@ defineProps<{ rating: Ranking; victorsByLevel?: Record<number, Victor[]> }>();
   }
 }
 table {
-  min-width: 620px;
+  min-width: 430px;
   font-size: 15px;
   th {
     font-weight: 500;
@@ -166,23 +172,11 @@ table {
     border-radius: 4px;
   }
 }
-.weight {
-  color: var(--text);
-  span {
-    color: var(--muted);
-  }
-}
 .position {
   color: var(--muted);
 }
-.contribution {
-  font-weight: 600;
-}
 .empty-result {
   color: var(--muted);
-  .contribution {
-    font-weight: 400;
-  }
 }
 .breakdown-note {
   margin: 0;

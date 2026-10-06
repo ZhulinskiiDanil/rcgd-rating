@@ -253,7 +253,7 @@ describe("Источники и сохранение данных", () => {
       db().prepare("UPDATE levels SET verifiedLocal=1 WHERE id<=150").run();
     });
     expect(one<any>("SELECT status FROM levels WHERE id=150").status).toBe(
-      "main",
+      "extended",
     );
     mutate("New", null, () => {
       db()
@@ -270,7 +270,7 @@ describe("Источники и сохранение данных", () => {
       db().prepare("UPDATE levels SET verifiedLocal=0 WHERE id=151").run(),
     );
     expect(one<any>("SELECT * FROM levels WHERE id=150")).toMatchObject({
-      status: "main",
+      status: "extended",
       exitedAt: null,
     });
   });

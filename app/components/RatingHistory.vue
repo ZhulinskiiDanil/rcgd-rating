@@ -1,6 +1,9 @@
 <script setup lang="ts">
+import { formatScore } from "#shared/utils/presentation";
 const props = defineProps<{ type: "players" | "districts"; id: number }>();
-const { data, error } = await useFetch("/api/history", {
+const { data, error } = await useFetch<
+  { id: number; score: number; rank: number | null; createdAt: string }[]
+>("/api/history", {
   query: { type: props.type, id: props.id },
   key: `history-${props.type}-${props.id}`,
 });
@@ -24,7 +27,6 @@ const { data, error } = await useFetch("/api/history", {
               <th scope="col">Дата, МСК</th>
               <th scope="col">Место</th>
               <th scope="col">Балл</th>
-              <th scope="col">Причина</th>
             </tr>
           </thead>
           <tbody>
@@ -36,15 +38,14 @@ const { data, error } = await useFetch("/api/history", {
                   })
                 }}</time>
               </td>
-              <td class="rank">#{{ r.rank }}</td>
-              <td class="score">{{ r.score.toFixed(3) }}</td>
-              <td class="reason">{{ r.reason }}</td>
+              <td class="rank">{{ r.rank === null ? "—" : "#" + r.rank }}</td>
+              <td class="score">{{ formatScore(r.score) }}</td>
             </tr>
           </tbody>
         </table>
       </div>
       <p v-else class="history-message">
-        Пока без изменений. Здесь появятся новые места и баллы после пересчёта.
+        Пока без изменений. Здесь появятся изменения позиции в рейтинге.
       </p>
     </details>
   </section>
@@ -100,7 +101,7 @@ details[open] {
   }
 }
 table {
-  min-width: 580px;
+  min-width: 360px;
   font-size: 15px;
   th {
     color: var(--muted);
@@ -126,10 +127,6 @@ table {
 .rank,
 .score {
   font-variant-numeric: tabular-nums;
-}
-.reason {
-  color: var(--muted);
-  max-width: 420px;
 }
 .history-message {
   padding: 22px 24px;

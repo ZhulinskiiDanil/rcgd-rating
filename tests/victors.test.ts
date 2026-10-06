@@ -38,6 +38,29 @@ const record = (
 });
 
 describe("Викторы и даты", () => {
+  it("показывает единственного регионального виктора без даты, не выдумывая порядок нескольких", () => {
+    const d = data();
+    d.records = [record(1, null), record(2, null)];
+    expect(
+      regionalFirstVictors(d, 7).map((row) => row.victors.map((v) => v.name)),
+    ).toEqual([["Alpha"], ["Beta"]]);
+    d.records.push(record(3, null));
+    expect(
+      regionalFirstVictors(d, 7).find((row) => row.region === "spb")!.victors,
+    ).toEqual([]);
+  });
+  it("исключает удалённый рекорд из викторов и определения первого даже при active=1", () => {
+    const d = data();
+    d.records = [
+      { ...record(1, "2024-01-01"), deletedAt: "2026-10-06T00:00:00Z" },
+      record(3, "2025-01-01"),
+    ];
+    expect(levelVictors(d, 7).map((victor) => victor.name)).toEqual(["Gamma"]);
+    expect(firstLevelVictors(d, 7).firstDate).toBe("2025-01-01");
+    expect(
+      regionalFirstVictors(d, 7)[0]?.victors.map((victor) => victor.name),
+    ).toEqual(["Gamma"]);
+  });
   it("показывает единственного известного виктора даже без даты и района", () => {
     const d = data();
     d.records = [record(4, null)];

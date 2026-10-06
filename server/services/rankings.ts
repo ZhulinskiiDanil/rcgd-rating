@@ -7,21 +7,12 @@ import {
   districtRating,
   effectivePercent,
   playerRating,
+  rankEntries,
+  isCurrentLevel,
+  listTier,
 } from "../../shared/utils/rating";
 import { all, dataset } from "../database";
 
-function rank<T extends { score: number; id: number }>(
-  items: T[],
-): (T & { rank: number })[] {
-  const sorted = items.sort((a, b) => a.score - b.score || a.id - b.id);
-  let previous = -1,
-    place = 0;
-  return sorted.map((entry, i) => {
-    if (Math.abs(entry.score - previous) > 1e-9) place = i + 1;
-    previous = entry.score;
-    return { ...entry, rank: place };
-  });
-}
 export function rankings(data: DataSet = dataset()): {
   players: RankedPlayer[];
   districts: RankedDistrict[];
@@ -31,8 +22,49 @@ export function rankings(data: DataSet = dataset()): {
       "SELECT id, COALESCE(NULLIF(avatarUrl,''),NULLIF(discordAvatar,''),NULLIF(googleAvatar,'')) AS avatar FROM accounts",
     ).map((a) => [a.id, a.avatar]),
   );
+  const currentLevels = new Set(
+    data.levels.filter(isCurrentLevel).map((level) => level.id),
+  );
+  const legacyLevels = new Set(
+    data.levels
+      .filter((level) => listTier(level) === "legacy")
+      .map((level) => level.id),
+  );
+  const districts = data.districts.map((district) => {
+    const players = new Set(
+      data.players
+        .filter((player) => player.districtId === district.id)
+        .map((player) => player.id),
+    );
+    const completions = new Set(
+      data.records
+        .filter(
+          (record) =>
+            players.has(record.playerId) && effectivePercent(record) === 100,
+        )
+        .map((record) => record.levelId),
+    );
+    data.extras
+      .filter((extra) => extra.districtId === district.id)
+      .forEach((extra) => completions.add(extra.levelId));
+    return {
+      ...district,
+      ...districtRating(data, district.id),
+      playerCount: players.size,
+      completionCount: [...completions].filter((id) => currentLevels.has(id))
+        .length,
+      legacyCompletionCount: [...completions].filter((id) =>
+        legacyLevels.has(id),
+      ).length,
+    };
+  });
+  const districtRanks = new Map(
+    rankEntries(
+      districts.filter((district) => district.completionCount > 0),
+    ).map((district) => [district.id, district.rank]),
+  );
   return {
-    players: rank(
+    players: rankEntries(
       data.players.map((p) => ({
         ...p,
         ...playerRating(data, p.id),
@@ -43,28 +75,13 @@ export function rankings(data: DataSet = dataset()): {
           (p.accountId ? (avatars.get(p.accountId) ?? null) : null),
       })),
     ),
-    districts: rank(
-      data.districts.map((d) => {
-        const players = new Set(
-          data.players.filter((p) => p.districtId === d.id).map((p) => p.id),
-        );
-        const completions = new Set(
-          data.records
-            .filter(
-              (r) => players.has(r.playerId) && effectivePercent(r) === 100,
-            )
-            .map((r) => r.levelId),
-        );
-        data.extras
-          .filter((e) => e.districtId === d.id)
-          .forEach((e) => completions.add(e.levelId));
-        return {
-          ...d,
-          ...districtRating(data, d.id),
-          playerCount: players.size,
-          completionCount: completions.size,
-        };
-      }),
-    ),
+    districts: districts
+      .map((district) => ({
+        ...district,
+        rank: districtRanks.get(district.id) ?? null,
+      }))
+      .sort(
+        (a, b) => (a.rank ?? Infinity) - (b.rank ?? Infinity) || a.id - b.id,
+      ),
   };
 }

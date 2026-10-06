@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { hasLevelPage, isCurrentLevel, listTier } from "#shared/utils/rating";
+import { formatScore } from "#shared/utils/presentation";
 import {
   compareCompletionDates,
   formatCompletionDate,
@@ -7,7 +9,10 @@ import {
 const id = Number(useRoute().params.id);
 const { data } = await useCatalog();
 const district = computed(() => data.value?.districts.find((d) => d.id === id));
-if (!district.value)
+if (
+  !district.value ||
+  district.value.completionCount + district.value.legacyCompletionCount === 0
+)
   throw createError({ statusCode: 404, statusMessage: "Район не найден" });
 const players = computed(
   () => data.value?.players.filter((p) => p.districtId === id) ?? [],
@@ -26,10 +31,13 @@ const districtLevels = computed(() => {
     ...extras.value.map((extra) => extra.levelId),
   ]);
   return data.value.levels
-    .filter((level) => ids.has(level.id))
+    .filter((level) => ids.has(level.id) && !level.listExcluded)
     .toSorted(
       (a, b) =>
-        (a.globalRank ?? Infinity) - (b.globalRank ?? Infinity) ||
+        Number(!hasLevelPage(a)) - Number(!hasLevelPage(b)) ||
+        Number(listTier(a) === "legacy") - Number(listTier(b) === "legacy") ||
+        (a.localRank ?? a.globalRank ?? Infinity) -
+          (b.localRank ?? b.globalRank ?? Infinity) ||
         a.name.localeCompare(b.name),
     );
 });
@@ -47,8 +55,16 @@ const completions = computed(
       (r) =>
         players.value.some((p) => p.id === r.playerId) &&
         r.active &&
+        !r.deletedAt &&
         Math.max(r.manualPercent ?? 0, r.importedPercent ?? 0) === 100,
     ) ?? [],
+);
+const hardest = computed(() => districtLevels.value.find(hasLevelPage));
+const linkedLevels = computed(
+  () =>
+    new Set(
+      data.value?.levels.filter(hasLevelPage).map((level) => level.id) ?? [],
+    ),
 );
 useHead({ title: () => `${district.value?.name} · СПб Demonlist` });
 </script>
@@ -65,7 +81,6 @@ useHead({ title: () => `${district.value?.name} · СПб Demonlist` });
       />
     </header>
     <div class="identity">
-      <div class="district-emblem"><AppIcon name="map" /></div>
       <div class="identity-text">
         <h1>{{ district.name }}</h1>
         <p>
@@ -77,29 +92,49 @@ useHead({ title: () => `${district.value?.name} · СПб Demonlist` });
         </p>
       </div>
     </div>
+    <div class="hardest-panel">
+      <span>Хардест района</span
+      ><NuxtLink v-if="hardest" :to="`/levels/${hardest.id}`">{{
+        hardest.name
+      }}</NuxtLink>
+    </div>
     <dl class="profile-stats">
       <div>
         <dt>Место в рейтинге</dt>
-        <dd class="accent">#{{ district.rank }}</dd>
+        <dd class="accent">
+          {{ district.rank === null ? "—" : "#" + district.rank }}
+        </dd>
       </div>
       <div>
         <dt>Рейтинговый балл</dt>
-        <dd>{{ district.score.toFixed(3) }}</dd>
+        <dd v-if="district.completionCount">
+          {{ formatScore(district.score) }}
+        </dd>
+        <dd v-else class="empty-rating">Нет прохождений в топ-150</dd>
       </div>
       <div>
         <dt>Игроков района</dt>
         <dd>{{ players.length }}</dd>
       </div>
       <div>
-        <dt>Уникальных прохождений</dt>
+        <dt>Пройденных уровней</dt>
         <dd>{{ district.completionCount }}</dd>
+        <small v-if="district.legacyCompletionCount"
+          >Legacy list: {{ district.legacyCompletionCount }}</small
+        >
       </div>
     </dl>
     <div class="section-heading">
-      <h2>Шесть лучших прохождений</h2>
+      <h2>Шесть сложнейших прохождений</h2>
       <span>Каждый уровень — один раз</span>
     </div>
-    <RatingBreakdown :rating="district" :victors-by-level="victorsByLevel" />
+    <RatingBreakdown
+      v-if="district.completionCount"
+      :rating="district"
+      :levels="data.levels"
+      :victors-by-level="victorsByLevel"
+    />
+    <ForecastCalculator entity-type="districts" :entity-id="id" />
     <div class="section-heading">
       <h2>
         Игроки района <span class="count">{{ players.length }}</span>
@@ -113,7 +148,7 @@ useHead({ title: () => `${district.value?.name} · СПб Demonlist` });
     <div class="panel members">
       <ul v-if="players.length">
         <li v-for="p in players" :key="p.id">
-          <div class="member-row">
+          <div class="member-row" :class="{ 'inactive-player': p.inactive }">
             <NuxtLink :to="'/players/' + p.id"
               ><span class="member-identity"
                 ><UserAvatar :name="p.name" :url="p.avatar" /><strong>{{
@@ -121,7 +156,7 @@ useHead({ title: () => `${district.value?.name} · СПб Demonlist` });
                 }}</strong></span
               ><span class="member-rating"
                 ><span>#{{ p.rank }}</span
-                >{{ p.score.toFixed(3)
+                >{{ formatScore(p.score)
                 }}<AppIcon name="chevron" /></span></NuxtLink
             ><EntityEditButton
               resource="players"
@@ -156,12 +191,16 @@ useHead({ title: () => `${district.value?.name} · СПб Demonlist` });
         class="district-level"
       >
         <div class="district-level-name">
-          <span class="level-position">{{
-            level.localRank ? "#" + level.localRank : "—"
-          }}</span>
+          <span v-if="isCurrentLevel(level)" class="level-position"
+            >#{{ level.localRank }}</span
+          >
           <div>
             <div class="entity-name">
-              <NuxtLink :to="`/levels/${level.id}`">{{ level.name }}</NuxtLink
+              <NuxtLink
+                v-if="hasLevelPage(level)"
+                :to="`/levels/${level.id}`"
+                >{{ level.name }}</NuxtLink
+              ><span v-else class="unlisted-name">{{ level.name }}</span
               ><EntityEditButton
                 resource="levels"
                 :entity-id="level.id"
@@ -169,16 +208,21 @@ useHead({ title: () => `${district.value?.name} · СПб Demonlist` });
                 compact
               />
             </div>
-            <span class="level-status">{{
+            <span v-if="hasLevelPage(level)" class="level-status">{{
               level.status === "main"
-                ? "Основной лист"
-                : level.status === "legacy"
-                  ? "Legacy"
-                  : "Вне основного листа"
+                ? "Main list"
+                : level.status === "extended"
+                  ? "Extended list"
+                  : level.status === "legacy"
+                    ? "Legacy list"
+                    : "Вне основного листа"
             }}</span>
           </div>
         </div>
-        <VictorList :victors="victorsByLevel[level.id] ?? []" />
+        <VictorList
+          v-if="hasLevelPage(level)"
+          :victors="victorsByLevel[level.id] ?? []"
+        />
       </div>
       <div v-if="!districtLevels.length" class="empty-note">
         <AppIcon name="list" />
@@ -197,8 +241,8 @@ useHead({ title: () => `${district.value?.name} · СПб Demonlist` });
       />
     </div>
     <p class="section-description">
-      В том числе уровни вне топа-150. Результаты с позицией хуже 150
-      сохраняются в истории достижений и не улучшают рейтинговый балл.
+      Уровни вне текущего топа-150 не улучшают рейтинговый балл. Для них
+      сохранены названия; страницы доступны для Main, Extended и Legacy list.
     </p>
     <div class="extras panel">
       <div v-if="extras.length" class="table-wrap" tabindex="0">
@@ -215,18 +259,30 @@ useHead({ title: () => `${district.value?.name} · СПб Demonlist` });
             <tr v-for="e in extras" :key="e.id">
               <td>
                 <div class="entity-name">
-                  <NuxtLink :to="'/levels/' + e.levelId">{{
+                  <NuxtLink
+                    v-if="linkedLevels.has(e.levelId)"
+                    :to="'/levels/' + e.levelId"
+                    >{{
+                      data.levels.find((l) => l.id === e.levelId)?.name
+                    }}</NuxtLink
+                  ><span v-else>{{
                     data.levels.find((l) => l.id === e.levelId)?.name
-                  }}</NuxtLink
+                  }}</span
                   ><EntityEditButton
                     resource="extras"
                     :entity-id="e.id"
                     label="Редактировать достижение района"
                     compact
                   />
+                  <EntityDeleteButton resource="extras" :entity-id="e.id" />
                 </div>
               </td>
-              <td><VictorList :victors="victorsByLevel[e.levelId] ?? []" /></td>
+              <td>
+                <VictorList
+                  v-if="linkedLevels.has(e.levelId)"
+                  :victors="victorsByLevel[e.levelId] ?? []"
+                /><span v-else>—</span>
+              </td>
               <td class="extra-date">
                 <time v-if="e.achievedAt" :datetime="e.achievedAt">{{
                   formatCompletionDate(e.achievedAt)
@@ -247,6 +303,24 @@ useHead({ title: () => `${district.value?.name} · СПб Demonlist` });
   </section>
 </template>
 <style scoped lang="scss">
+.hardest-panel {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+  margin-top: 26px;
+  span {
+    color: var(--muted);
+    font-size: 15px;
+  }
+  a {
+    font-size: 22px;
+    font-weight: 600;
+  }
+}
+.inactive-player .member-identity strong {
+  color: var(--danger);
+}
 .detail-toolbar {
   display: flex;
   align-items: center;
@@ -295,22 +369,6 @@ useHead({ title: () => `${district.value?.name} · СПб Demonlist` });
     margin: 0;
   }
 }
-.district-emblem {
-  display: grid;
-  place-items: center;
-  width: 100px;
-  height: 100px;
-  flex-shrink: 0;
-  border-radius: 20px;
-  border: 1px solid var(--line);
-  background: var(--accent-soft);
-  color: var(--accent);
-  :deep(svg) {
-    width: 35px;
-    height: 35px;
-    stroke-width: 1.2;
-  }
-}
 .profile-stats {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -330,6 +388,12 @@ useHead({ title: () => `${district.value?.name} · СПб Demonlist` });
     color: var(--muted);
     font-size: 14px;
   }
+  small {
+    color: var(--muted);
+    font-size: 13px;
+    display: block;
+    margin-top: 8px;
+  }
   dd {
     margin: 8px 0 0;
     color: var(--text);
@@ -340,6 +404,12 @@ useHead({ title: () => `${district.value?.name} · СПб Demonlist` });
     &.accent {
       color: var(--warm);
     }
+  }
+  .empty-rating {
+    font-size: 16px;
+    letter-spacing: normal;
+    color: var(--muted);
+    font-weight: 400;
   }
 }
 .section-heading {
@@ -515,7 +585,8 @@ useHead({ title: () => `${district.value?.name} · СПб Demonlist` });
   > div {
     min-width: 0;
   }
-  a {
+  a,
+  .unlisted-name {
     color: var(--text);
     font-weight: 600;
     font-size: 19px;
@@ -562,15 +633,6 @@ useHead({ title: () => `${district.value?.name} · СПб Demonlist` });
   }
   .identity-text h1 {
     font-size: 28px;
-  }
-  .district-emblem {
-    width: 56px;
-    height: 56px;
-    border-radius: 14px;
-    :deep(svg) {
-      width: 28px;
-      height: 28px;
-    }
   }
   .profile-stats {
     grid-template-columns: 1fr 1fr;

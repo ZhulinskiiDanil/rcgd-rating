@@ -13,6 +13,26 @@ const error = ref(""),
 const canAdmin = computed(
   () => user.value?.headAdmin || user.value?.permissions.length,
 );
+const nickname = ref(user.value?.nickname || user.value?.login || "");
+const profileBusy = ref(false),
+  profileMessage = ref("");
+async function saveNickname() {
+  profileBusy.value = true;
+  error.value = "";
+  profileMessage.value = "";
+  try {
+    await $fetch("/api/account/profile", {
+      method: "PATCH",
+      body: { nickname: nickname.value },
+    });
+    await refreshNuxtData();
+    profileMessage.value = "Ник сохранён.";
+  } catch (cause: any) {
+    error.value = cause.data?.message || "Не удалось изменить ник.";
+  } finally {
+    profileBusy.value = false;
+  }
+}
 useHead({ title: "Мой аккаунт — СПб Demonlist" });
 async function logout() {
   busy.value = true;
@@ -60,11 +80,11 @@ async function link(provider: "google" | "discord") {
     <div class="account-layout">
       <aside class="profile panel">
         <UserAvatar
-          :name="user.login"
+          :name="user.nickname || user.login"
           :url="user.avatar"
           class="profile-avatar"
         />
-        <h2>{{ user.login }}</h2>
+        <h2>{{ user.nickname || user.login }}</h2>
         <div class="account-edit">
           <EntityEditButton
             resource="accounts"
@@ -104,6 +124,38 @@ async function link(provider: "google" | "discord") {
         >
       </aside>
       <div class="account-details">
+        <section class="detail-section panel">
+          <h2>Твой ник</h2>
+          <form class="nickname-form" @submit.prevent="saveNickname">
+            <label
+              >Имя в профиле<input
+                v-model="nickname"
+                required
+                minlength="1"
+                maxlength="64"
+                autocomplete="nickname" /></label
+            ><button class="primary" :disabled="profileBusy">
+              {{ profileBusy ? "Сохраняем…" : "Сохранить ник" }}
+            </button>
+          </form>
+          <p class="muted">
+            Логин для входа: <span class="entity-id">{{ user.login }}</span
+            >.
+          </p>
+          <p v-if="profileMessage" role="status">{{ profileMessage }}</p>
+        </section>
+        <section v-if="player" class="detail-section panel">
+          <h2>Мои достижения</h2>
+          <NuxtLink
+            class="button"
+            :to="`/players/${player.id}?filter=completed`"
+            >Пройденные уровни</NuxtLink
+          ><NuxtLink
+            class="button"
+            :to="`/forecast?type=players&id=${player.id}`"
+            >Будущий рейтинг</NuxtLink
+          >
+        </section>
         <section class="detail-section panel">
           <div class="section-heading">
             <AppIcon name="shield" :size="21" />
@@ -181,6 +233,17 @@ async function link(provider: "google" | "discord") {
   </section>
 </template>
 <style scoped lang="scss">
+.nickname-form {
+  display: flex;
+  align-items: end;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-bottom: 16px;
+  label {
+    flex: 1;
+    min-width: 180px;
+  }
+}
 .account-edit {
   margin: 0 0 16px;
   &:empty {
