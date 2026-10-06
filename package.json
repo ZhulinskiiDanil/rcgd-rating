@@ -1,0 +1,40 @@
+{
+  "name": "spb-demonlist",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "nuxt dev --host 127.0.0.1",
+    "build": "nuxt build",
+    "start": "node --env-file-if-exists=.env .output/server/index.mjs",
+    "postinstall": "nuxt prepare",
+    "typecheck": "nuxt typecheck",
+    "test": "vitest run",
+    "bootstrap": "node --env-file-if-exists=.env --import tsx scripts/bootstrap.ts",
+    "sync": "node --env-file-if-exists=.env --import tsx scripts/sync.ts",
+    "format": "prettier --write app server shared scripts tests nuxt.config.ts",
+    "test:smoke": "node scripts/smoke.mjs"
+  },
+  "dependencies": {
+    "@dicebear/core": "^9.4.3",
+    "@dicebear/initials": "^9.4.2",
+    "better-sqlite3": "13.0.3",
+    "cheerio": "1.2.0",
+    "csv-parse": "^7.0.3",
+    "nuxt": "4.5.2",
+    "nuxt-auth-utils": "0.5.30",
+    "zod": "4.3.6"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^22.19.0",
+    "prettier": "^3.9.9",
+    "sass": "^1.97.3",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3",
+    "vitest": "^5.0.3",
+    "vue-tsc": "^3.2.4"
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  }
+}

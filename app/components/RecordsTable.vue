@@ -1,0 +1,306 @@
+<script setup lang="ts">
+import type { Level, Player, RecordEntry } from "#shared/types/domain";
+import { effectivePercent } from "#shared/utils/rating";
+import { recordVideoUrl } from "#shared/utils/record-video";
+import { formatCompletionDate } from "#shared/utils/victors";
+type PublicRecord = Omit<RecordEntry, "note"> & { fromSheet?: boolean };
+const props = defineProps<{
+  records: PublicRecord[];
+  players: (Player & { avatar?: string | null })[];
+  levels: Level[];
+}>();
+const percent = (r: PublicRecord) => effectivePercent({ ...r, note: "" });
+const playerMap = computed(() => new Map(props.players.map((p) => [p.id, p])));
+const levelMap = computed(() => new Map(props.levels.map((l) => [l.id, l])));
+const video = recordVideoUrl;
+function source(record: PublicRecord) {
+  if (record.manualPercent && record.importedPercent)
+    return "Глобал + администрация";
+  if (record.manualPercent)
+    return record.fromSheet ? "Таблица СПб" : "Администрация";
+  return "Глобал";
+}
+</script>
+<template>
+  <div v-if="records.length" class="table-wrap records-wrap">
+    <table class="records-table">
+      <thead>
+        <tr>
+          <th>Игрок / уровень</th>
+          <th>Результат</th>
+          <th>Дата</th>
+          <th>Источник</th>
+          <th><span class="video-heading">Видео</span></th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr v-for="r in records" :key="r.id">
+          <td>
+            <div class="record-person">
+              <UserAvatar
+                :name="playerMap.get(r.playerId)?.name || 'Игрок'"
+                :url="playerMap.get(r.playerId)?.avatar"
+              />
+              <div>
+                <NuxtLink :to="`/players/${r.playerId}`" class="player-name">{{
+                  playerMap.get(r.playerId)?.name || "Игрок"
+                }}</NuxtLink>
+                <NuxtLink :to="`/levels/${r.levelId}`" class="level-name">{{
+                  levelMap.get(r.levelId)?.name || "Уровень"
+                }}</NuxtLink>
+              </div>
+            </div>
+          </td>
+          <td>
+            <div class="result" :class="{ complete: percent(r) === 100 }">
+              <span
+                ><AppIcon v-if="percent(r) === 100" name="check" />{{
+                  percent(r)
+                }}%</span
+              >
+              <div class="progress-track" aria-hidden="true">
+                <span :style="{ width: percent(r) + '%' }" />
+              </div>
+            </div>
+          </td>
+          <td class="record-date">
+            <time v-if="r.achievedAt" :datetime="r.achievedAt">{{
+              formatCompletionDate(r.achievedAt)
+            }}</time
+            ><span v-else>Не указана</span>
+            <small v-if="r.achievedAt && r.dateSource === 'video'"
+              >Публикация видео · МСК</small
+            >
+            <small v-else-if="r.achievedAt && r.dateSource === 'manual'"
+              >Указана администрацией</small
+            >
+          </td>
+          <td class="source-cell">
+            <span>{{ source(r) }}</span
+            ><small v-if="r.missing"
+              >Отсутствует в глобале, сохранён локально</small
+            ><small v-if="r.reviewNeeded">Ожидает решения администрации</small>
+          </td>
+          <td class="video-cell">
+            <div class="record-actions">
+              <a
+                v-if="video(r)"
+                :href="video(r)"
+                target="_blank"
+                rel="noopener noreferrer"
+                :aria-label="`Смотреть рекорд ${playerMap.get(r.playerId)?.name || ''} на ${levelMap.get(r.levelId)?.name || 'уровне'}`"
+                title="Смотреть видео"
+                ><AppIcon name="play" /></a
+              ><span v-else class="no-video">—</span>
+              <EntityEditButton
+                resource="records"
+                :entity-id="r.id"
+                :label="`Редактировать рекорд ${playerMap.get(r.playerId)?.name || ''}`"
+                compact
+              />
+            </div>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <div v-else class="empty-records">
+    <AppIcon name="trophy" />
+    <h3>Рекордов пока нет</h3>
+    <p>
+      Подтверждённые прохождения и прогрессы появятся здесь после добавления
+      администрацией или импорта из глобала.
+    </p>
+  </div>
+</template>
+<style scoped lang="scss">
+.records-wrap {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.records-table {
+  width: 100%;
+  th {
+    background: transparent;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--muted);
+    padding: 17px 20px;
+    white-space: nowrap;
+  }
+  td {
+    padding: 20px;
+    vertical-align: middle;
+  }
+  tbody tr:last-child td {
+    border-bottom: 0;
+  }
+}
+.record-person {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 140px;
+  > img {
+    flex-shrink: 0;
+    width: 38px;
+    height: 38px;
+    border-radius: 9px;
+  }
+  > div {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+}
+.player-name {
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 500;
+  text-decoration: none;
+  &:hover {
+    color: var(--accent);
+  }
+}
+.level-name {
+  font-size: 13px;
+  color: var(--muted);
+  text-decoration: none;
+  &:hover {
+    color: var(--accent);
+  }
+}
+.result {
+  min-width: 66px;
+  max-width: 100px;
+  color: var(--warm);
+  > span {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-weight: 600;
+    font-size: 16px;
+    font-variant-numeric: tabular-nums;
+    svg {
+      width: 13px;
+      height: 13px;
+    }
+  }
+  &.complete {
+    color: var(--accent);
+  }
+}
+.progress-track {
+  width: 100%;
+  height: 3px;
+  background: var(--line);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-top: 8px;
+  span {
+    height: 100%;
+    display: block;
+    background: currentColor;
+  }
+}
+.source-cell {
+  color: var(--muted);
+  font-size: 13px;
+  min-width: 110px;
+  max-width: 200px;
+  small {
+    display: block;
+    color: var(--warm);
+    font-size: 12px;
+    line-height: 1.5;
+    margin-top: 5px;
+  }
+}
+.record-date {
+  white-space: nowrap;
+  font-size: 13px;
+  color: var(--muted);
+  small {
+    display: block;
+    margin-top: 5px;
+    white-space: normal;
+    max-width: 150px;
+    font-size: 12px;
+  }
+}
+.record-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+.video-cell {
+  text-align: right;
+  a {
+    display: inline-grid;
+    place-items: center;
+    width: 40px;
+    height: 40px;
+    background: var(--surface-raised);
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    color: var(--text);
+    &:hover {
+      color: var(--accent);
+      border-color: var(--accent);
+    }
+    svg {
+      width: 13px;
+      height: 13px;
+    }
+  }
+}
+.video-heading {
+  float: right;
+}
+.no-video {
+  color: var(--muted);
+  padding-right: 10px;
+}
+.empty-records {
+  border: 1px dashed var(--line);
+  border-radius: var(--radius);
+  padding: 36px 24px;
+  text-align: center;
+  > svg {
+    width: 27px;
+    height: 27px;
+    color: var(--muted);
+  }
+  h3 {
+    font-size: 18px;
+    font-weight: 500;
+    margin: 15px 0 10px;
+  }
+  p {
+    color: var(--muted);
+    font-size: 15px;
+    line-height: 1.7;
+    max-width: 420px;
+    margin: 0 auto;
+  }
+}
+@media (max-width: 650px) {
+  .records-table td,
+  .records-table th {
+    padding: 13px 10px;
+  }
+  .record-person {
+    gap: 8px;
+    min-width: 125px;
+    > img {
+      width: 25px;
+      height: 25px;
+    }
+  }
+  .source-cell {
+    min-width: 100px;
+  }
+}
+</style>
