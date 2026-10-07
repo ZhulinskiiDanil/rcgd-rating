@@ -31,6 +31,11 @@ watch(
     failed.value = false;
   },
 );
+const letterboxedThumbnail = computed(() =>
+  /^https?:\/\/(?:i\.ytimg\.com|img\.youtube\.com)\/(?:vi|vi_webp)\/[^/]+\/(?:default|hqdefault|sddefault)\.(?:jpg|webp)(?:[?#]|$)/.test(
+    thumbnail.value ?? "",
+  ),
+);
 </script>
 <template>
   <div
@@ -40,6 +45,7 @@ watch(
     <img
       v-if="thumbnail && !failed"
       :src="thumbnail"
+      :class="{ 'letterboxed-thumbnail': letterboxedThumbnail }"
       alt=""
       :loading="eager ? 'eager' : 'lazy'"
       referrerpolicy="no-referrer"
@@ -75,6 +81,12 @@ img {
   height: 100%;
   object-fit: cover;
   display: block;
+}
+.letterboxed-thumbnail {
+  position: absolute;
+  top: 50%;
+  height: calc(100% * 4 / 3);
+  transform: translateY(-50%);
 }
 svg {
   width: 100%;

@@ -119,10 +119,8 @@ useHead({ title: () => `${district.value?.name} · СПб Demonlist` });
       </div>
       <div>
         <dt>Пройденных уровней</dt>
-        <dd>{{ district.completionCount }}</dd>
-        <small v-if="district.legacyCompletionCount"
-          >Legacy list: {{ district.legacyCompletionCount }}</small
-        >
+        <dd>{{ district.completionCount + district.legacyCompletionCount }}</dd>
+        <DistrictCompletionCounts :district="district" />
       </div>
     </dl>
     <div class="section-heading">

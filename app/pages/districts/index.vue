@@ -130,7 +130,10 @@ useHead({ title: "Рейтинг районов · СПб Demonlist" });
                 >
               </td>
               <td class="number-col muted">{{ d.playerCount }}</td>
-              <td class="number-col muted">{{ d.completionCount }}</td>
+              <td class="number-col muted">
+                {{ d.completionCount + d.legacyCompletionCount }}
+                <DistrictCompletionCounts :district="d" />
+              </td>
               <td class="number-col score">
                 <span v-if="d.completionCount">{{ formatScore(d.score) }}</span
                 ><span v-else class="empty-rating">{{

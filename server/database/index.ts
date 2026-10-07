@@ -7,6 +7,7 @@ import { migrateAccountSecurity } from "./account-security";
 import { migrateRegionalVictors } from "./regional-victors";
 import { migrateHistoryEditing } from "./history-editing";
 import { migrateMikaPurge } from "./mika-purge";
+import { migrateHistoryCorrections } from "./history-corrections";
 import {
   migrateMedia,
   migrateRecordDates,
@@ -66,6 +67,7 @@ export function db() {
     migrateRegionalVictors(connection);
     migrateHistoryEditing(connection);
     migrateMikaPurge(connection);
+    migrateHistoryCorrections(connection);
     const cities = [
       "Адмиралтейский",
       "Василеостровский",

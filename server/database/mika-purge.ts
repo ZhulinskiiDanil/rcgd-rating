@@ -76,7 +76,7 @@ function pruneLevelChanges(
   return deleted;
 }
 
-function permanentIds(connection: Database.Database, table: string) {
+export function permanentIds(connection: Database.Database, table: string) {
   const { sql } = connection
     .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name=?")
     .get(table) as { sql: string };

@@ -41,7 +41,7 @@ function causedBy(
   const newAbove =
     cause.toRank !== null && cause.toRank < (movement.toRank ?? Infinity);
   if (oldAbove === newAbove) return null;
-  if (cause.toTier === null) return `${cause.name} удалён из листа`;
+  if (cause.toTier === null) return `${cause.name} удалён с позиции выше`;
   const added = cause.fromRank === null && cause.fromTier !== "legacy";
   return `${cause.name} ${added ? "поставлен" : "поставили"} ${newAbove ? "выше" : "ниже"} этого уровня`;
 }
@@ -60,20 +60,16 @@ const storedMovements = z.object({
   ),
 });
 
-export function storedLevelNote(
-  levelId: number,
-  primaryId: number | null,
-  afterJson: string | null,
-): string {
-  if (!afterJson) return "";
+export function readStoredMovements(afterJson: string | null): LevelMovement[] {
+  if (!afterJson) return [];
   let json: unknown;
   try {
     json = JSON.parse(afterJson);
   } catch {
-    return "";
+    return [];
   }
   const parsed = storedMovements.safeParse(json);
-  if (!parsed.success) return "";
+  if (!parsed.success) return [];
   const movements = parsed.data.movements.map((movement) => ({
     ...movement,
     note: movement.note ?? "",
@@ -82,7 +78,46 @@ export function storedLevelNote(
     new Set(movements.map((movement) => movement.levelId)).size !==
     movements.length
   )
-    return "";
+    return [];
+  return movements;
+}
+
+export function correctRemovalNote(
+  note: string,
+  movement: LevelMovement,
+  movements: LevelMovement[],
+) {
+  let corrected = note;
+  const removalReasons: string[] = [];
+  for (const cause of movements) {
+    if (
+      cause.levelId === movement.levelId ||
+      cause.toTier !== null ||
+      cause.fromRank === null ||
+      (movement.fromRank === null && movement.fromTier !== "legacy") ||
+      cause.fromRank >= (movement.fromRank ?? Infinity) ||
+      movement.toRank === null ||
+      (movement.fromRank !== null && movement.toRank >= movement.fromRank)
+    )
+      continue;
+    removalReasons.push(`${cause.name} удалён с позиции выше`);
+    for (const spelling of ["удалён", "удален"])
+      corrected = corrected.replaceAll(
+        `${cause.name} ${spelling} из листа`,
+        `${cause.name} удалён с позиции выше`,
+      );
+  }
+  if ((!corrected || corrected === "Подвинут") && removalReasons.length)
+    return removalReasons.join("; ");
+  return corrected;
+}
+
+export function storedLevelNote(
+  levelId: number,
+  primaryId: number | null,
+  afterJson: string | null,
+): string {
+  const movements = readStoredMovements(afterJson);
   const movement = movements.find((item) => item.levelId === levelId);
   if (!movement) return "";
   if (movement.toTier === "legacy") {
@@ -100,7 +135,8 @@ export function storedLevelNote(
       if (reason) return withoutHistoryQuotes(reason);
     }
   }
-  if (movement.note) return withoutHistoryQuotes(movement.note);
+  const correctedNote = correctRemovalNote(movement.note, movement, movements);
+  if (correctedNote) return withoutHistoryQuotes(correctedNote);
   const primary = movements.find((item) => item.levelId === primaryId);
   if (!primary) return "";
   return withoutHistoryQuotes(
@@ -199,7 +235,12 @@ export function describeListChanges(before: Level[], after: Level[]) {
       .map((cause) => causedBy(movement, cause))
       .filter(Boolean)
       .join("; ");
-    if (movement.toTier === "legacy" && reasons) {
+    if (
+      reasons &&
+      (movement.toTier === "legacy" ||
+        (movement.fromTier === "legacy" &&
+          primary.some((cause) => cause.toTier === null)))
+    ) {
       movement.note = withoutHistoryQuotes(reasons);
       continue;
     }
@@ -217,9 +258,7 @@ export function describeListChanges(before: Level[], after: Level[]) {
   };
   const legacyDescription = (movement: LevelMovement) => {
     const reason =
-      movement.note && movement.note !== "Подвинут"
-        ? `. ${movement.note}`
-        : "";
+      movement.note && movement.note !== "Подвинут" ? `. ${movement.note}` : "";
     return `${movement.name} вылетел в Legacy list с ${movement.fromRank} места${reason}`;
   };
   const transitions = movements
@@ -236,31 +275,37 @@ export function describeListChanges(before: Level[], after: Level[]) {
         (a.toRank ?? Infinity) - (b.toRank ?? Infinity),
     );
   const descriptions = transitions.map((movement) => {
-    if (movement.toTier === "legacy")
-      return legacyDescription(movement);
+    if (movement.toTier === "legacy") return legacyDescription(movement);
     const returned =
       movement.fromTier === "legacy" ||
       (movement.fromTier === "extended" && movement.toTier === "main");
-    return `${movement.name} ${returned ? "вернулся в" : "вылетел из Main list в"} ${tierNames[movement.toTier!]} на ${movement.toRank} место${movement.fromRank !== null ? ` (был на ${movement.fromRank} месте)` : ""}${primary.includes(movement) ? neighbors(movement.toRank) : ""}`;
+    if (returned)
+      return `${movement.name} вернулся в ${tierNames[movement.toTier!]}`;
+    return `${movement.name} вылетает в ${tierNames[movement.toTier!]} на ${movement.toRank} место${movement.fromRank !== null ? ` (был на ${movement.fromRank} месте)` : ""}${primary.includes(movement) ? neighbors(movement.toRank) : ""}`;
   });
   const ordinary = primary.filter(
     (movement) => !transitions.includes(movement),
   );
+  const removed = ordinary.filter((movement) => movement.toTier === null);
+  descriptions.unshift(
+    ...removed.map((movement) => `${movement.name} удалён из листа`),
+  );
+  const remaining = ordinary.filter((movement) => !removed.includes(movement));
   descriptions.push(
-    ...ordinary.slice(0, 5).map((movement) => {
+    ...remaining.slice(0, 5).map((movement) => {
       if (movement.toRank === null)
         return movement.toTier === "legacy"
           ? legacyDescription(movement)
           : `${movement.name} удалён из листа`;
       if (movement.fromTier === "legacy")
-        return `${movement.name} вернулся в ${tierNames[movement.toTier!]} на ${movement.toRank} место${neighbors(movement.toRank)}`;
+        return `${movement.name} вернулся в ${tierNames[movement.toTier!]}`;
       if (movement.fromRank === null)
         return `${movement.name} поставлен в топ на ${movement.toRank} место${neighbors(movement.toRank)}`;
       return `${movement.name} был ${movement.toRank < movement.fromRank ? "повышен" : "понижен"} с ${movement.fromRank} на ${movement.toRank} место${neighbors(movement.toRank)}`;
     }),
   );
-  if (ordinary.length > 5)
-    descriptions.push(`и ещё ${ordinary.length - 5} изменений порядка`);
+  if (remaining.length > 5)
+    descriptions.push(`и ещё ${remaining.length - 5} изменений порядка`);
   if (!descriptions.length)
     descriptions.push("Обновлён порядок уровней в листе");
   return {

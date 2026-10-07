@@ -11,12 +11,16 @@ import {
 import { formatScore, formatPosition } from "#shared/utils/presentation";
 import { regionalFirstVictors } from "#shared/utils/victors";
 import { recordVideoUrl } from "#shared/utils/record-video";
+import { playerNeighbors } from "#shared/utils/player-navigation";
 const route = useRoute(),
   id = Number(route.params.id);
 const { data } = await useCatalog();
 const boundary = computed(() => listBoundary(data.value?.levels ?? []));
 const { data: session } = await useAccount();
 const player = computed(() => data.value?.players.find((p) => p.id === id));
+const neighbors = computed(() =>
+  playerNeighbors(data.value?.players ?? [], id),
+);
 if (!player.value)
   throw createError({ statusCode: 404, statusMessage: "Игрок не найден" });
 const outcome = ref(
@@ -247,6 +251,43 @@ useHead({ title: () => `${player.value?.name} · СПб Demonlist` });
         >Настройки профиля</NuxtLink
       >
     </header>
+    <nav
+      v-if="neighbors.previous || neighbors.next"
+      class="player-pagination"
+      aria-label="Соседние игроки в рейтинге"
+    >
+      <NuxtLink
+        v-if="neighbors.previous"
+        :to="`/players/${neighbors.previous.id}`"
+        class="previous"
+      >
+        <span class="direction"
+          ><AppIcon name="arrow" />{{
+            neighbors.previous.rank === player.rank
+              ? "То же место"
+              : "Выше в рейтинге"
+          }}</span
+        >
+        <strong
+          >#{{ neighbors.previous.rank }} ·
+          {{ neighbors.previous.name }}</strong
+        >
+      </NuxtLink>
+      <NuxtLink
+        v-if="neighbors.next"
+        :to="`/players/${neighbors.next.id}`"
+        class="next"
+      >
+        <span class="direction"
+          >{{
+            neighbors.next.rank === player.rank
+              ? "То же место"
+              : "Ниже в рейтинге"
+          }}<AppIcon name="arrow"
+        /></span>
+        <strong>#{{ neighbors.next.rank }} · {{ neighbors.next.name }}</strong>
+      </NuxtLink>
+    </nav>
     <div class="identity">
       <UserAvatar :name="player.name" :url="player.avatar" size="large" />
       <div class="identity-text">
@@ -450,6 +491,63 @@ useHead({ title: () => `${player.value?.name} · СПб Demonlist` });
   justify-content: space-between;
   gap: 16px;
   flex-wrap: wrap;
+}
+.player-pagination {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 16px;
+  margin-top: 24px;
+  a {
+    min-width: 0;
+    display: grid;
+    gap: 8px;
+    padding: 15px 18px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--surface);
+    text-decoration: none;
+    &:hover {
+      border-color: var(--accent);
+    }
+  }
+  .direction {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--muted);
+    font-size: 12px;
+    svg {
+      flex-shrink: 0;
+      width: 16px;
+      height: 16px;
+    }
+  }
+  strong {
+    color: var(--text);
+    font-size: 15px;
+    overflow-wrap: anywhere;
+  }
+  .previous .direction svg {
+    transform: rotate(180deg);
+  }
+  .next {
+    grid-column: 2;
+    text-align: right;
+    .direction {
+      justify-content: flex-end;
+    }
+  }
+}
+@media (max-width: 540px) {
+  .player-pagination {
+    gap: 10px;
+    a {
+      padding: 12px;
+    }
+    strong {
+      font-size: 14px;
+    }
+  }
 }
 
 .back-link {

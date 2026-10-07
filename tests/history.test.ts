@@ -99,7 +99,7 @@ describe("Причины перестановок уровней", () => {
         ?.note,
     ).toBe("New level поставлен выше этого уровня");
     expect(publicEvents("level")[0]?.title).toMatch(
-      /^Level 75 вылетел из Main list в Extended list/,
+      /^Level 75 вылетает в Extended list/,
     );
     expect(publicEvents("level")[0]?.title).toContain(
       "Level 150 вылетел в Legacy list с 150 места. New level поставлен выше этого уровня",
@@ -111,8 +111,8 @@ describe("Причины перестановок уровней", () => {
       db().prepare("UPDATE levels SET globalRank=74.5 WHERE id=76").run(),
     );
     const title = publicEvents("level")[0]?.title;
-    expect(title).toMatch(/^Level 75 вылетел из Main list в Extended list/);
-    expect(title).toContain("Level 76 вернулся в Main list на 75 место");
+    expect(title).toMatch(/^Level 75 вылетает в Extended list/);
+    expect(title).toMatch(/Level 76 вернулся в Main list$/);
     expect(title?.match(/Level 76 вернулся/g)).toHaveLength(1);
   });
   it("восстанавливает причину старого вылета в Legacy вместо общего Подвинут", () => {
@@ -167,6 +167,40 @@ describe("Причины перестановок уровней", () => {
         ?.note,
     ).toBe("Level 75 поставили выше этого уровня");
   });
+  it("удаление уровня начинается с удаления и объясняет все вызванные им повышения", () => {
+    mutate("Remove higher", null, () =>
+      db()
+        .prepare(
+          "UPDATE levels SET deletedAt='2026-10-08T10:00:00Z' WHERE id=13",
+        )
+        .run(),
+    );
+    const title = publicEvents("level")[0]?.title;
+    expect(title).toMatch(/^Level 13 удалён из листа\. /);
+    expect(title).toContain("Level 76 вернулся в Main list");
+    expect(title).not.toMatch(/вернулся в (?:Main|Extended) list на/);
+    expect(
+      one<{ note: string }>("SELECT note FROM levelHistory WHERE levelId=50")
+        ?.note,
+    ).toBe("Level 13 удалён с позиции выше");
+  });
+  it("возврат #150 из Legacy после удаления верхнего уровня сохраняет причину", () => {
+    mutate("Add", null, () =>
+      db()
+        .prepare(
+          "INSERT INTO levels(id,name,globalRank,verifiedLocal) VALUES(200,'New hardest',0,1)",
+        )
+        .run(),
+    );
+    clearHistory();
+    mutate("Remove", null, () =>
+      db().prepare("UPDATE levels SET listExcluded=1 WHERE id=200").run(),
+    );
+    expect(
+      one<{ note: string }>("SELECT note FROM levelHistory WHERE levelId=150")
+        ?.note,
+    ).toBe("New hardest удалён с позиции выше");
+  });
   it("понижение ниже Mika сохраняет Legacy, дату и рекорды; возврат даёт одно событие", () => {
     db().prepare("UPDATE levels SET name='Mika' WHERE id=150").run();
     db().exec(
@@ -198,6 +232,7 @@ describe("Причины перестановок уровней", () => {
     expect(events).toHaveLength(1);
     expect(events[0]?.title.match(/Level 127/g)).toHaveLength(1);
     expect(events[0]?.title).toContain("Level 127 вернулся в Extended list");
+    expect(events[0]?.title).not.toContain("вернулся в Extended list на");
     expect(all("SELECT * FROM levelHistory WHERE levelId=127")).toHaveLength(1);
     expect(one<any>("SELECT status,exitedAt FROM levels WHERE id=127")).toEqual(
       { status: "extended", exitedAt: null },

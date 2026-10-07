@@ -8,7 +8,6 @@ import {
   effectivePercent,
   playerRating,
   rankEntries,
-  isCurrentLevel,
   listTier,
   completedLevels,
 } from "../../shared/utils/rating";
@@ -34,14 +33,9 @@ export function rankings(data: DataSet = dataset()): {
     players: data.players.filter((p) => !p.deletedAt),
     extras: data.extras.filter((e) => !e.deletedAt),
   };
-  const currentLevels = new Set(
-    data.levels.filter(isCurrentLevel).map((level) => level.id),
-  );
   const completed = completedLevels(data);
-  const legacyLevels = new Set(
-    data.levels
-      .filter((level) => listTier(level) === "legacy")
-      .map((level) => level.id),
+  const levelTiers = new Map(
+    data.levels.map((level) => [level.id, listTier(level)]),
   );
   const districts = data.districts.map((district) => {
     const players = new Set(
@@ -60,15 +54,19 @@ export function rankings(data: DataSet = dataset()): {
     data.extras
       .filter((extra) => extra.districtId === district.id)
       .forEach((extra) => completions.add(extra.levelId));
+    const counts = { main: 0, extended: 0, legacy: 0 };
+    for (const levelId of completions) {
+      const tier = levelTiers.get(levelId);
+      if (tier) counts[tier] += 1;
+    }
     return {
       ...district,
       ...districtRating(data, district.id, completed),
       playerCount: players.size,
-      completionCount: [...completions].filter((id) => currentLevels.has(id))
-        .length,
-      legacyCompletionCount: [...completions].filter((id) =>
-        legacyLevels.has(id),
-      ).length,
+      completionCount: counts.main + counts.extended,
+      mainCompletionCount: counts.main,
+      extendedCompletionCount: counts.extended,
+      legacyCompletionCount: counts.legacy,
     };
   });
   const districtRanks = new Map(

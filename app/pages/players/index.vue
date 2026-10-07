@@ -48,6 +48,15 @@ const linkedDistricts = computed(
         .map((district) => district.id) ?? [],
     ),
 );
+const districtNames = computed(
+  () =>
+    new Map(
+      data.value?.districts.map((item) => [
+        item.id,
+        item.name + (item.region === "lo" ? " (ЛО)" : ""),
+      ]) ?? [],
+    ),
+);
 const resetFilters = () => {
   search.value = "";
   region.value = "";
@@ -165,9 +174,9 @@ useHead({ title: "Рейтинг игроков · СПб Demonlist" });
                   v-if="p.districtId && linkedDistricts.has(p.districtId)"
                   class="district-link"
                   :to="'/districts/' + p.districtId"
-                  >{{ p.districtName }}</NuxtLink
+                  >{{ districtNames.get(p.districtId) }}</NuxtLink
                 ><span v-else class="unassigned">{{
-                  p.districtName || "Не назначен"
+                  districtNames.get(p.districtId ?? 0) || "Не назначен"
                 }}</span>
               </td>
               <td class="score">{{ formatScore(p.score) }}</td>

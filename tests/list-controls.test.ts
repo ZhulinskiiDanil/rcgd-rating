@@ -61,9 +61,7 @@ describe("Границы листа, удаления и история", () => 
     );
     expect(events).toHaveLength(1);
     expect(events[0].title).toContain("New hardest поставлен в топ на 1 место");
-    expect(events[0].title).toMatch(
-      /^Level 75 вылетел из Main list в Extended list/,
-    );
+    expect(events[0].title).toMatch(/^Level 75 вылетает в Extended list/);
     expect(events[0].title).toContain(
       "Level 150 вылетел в Legacy list с 150 места",
     );
@@ -84,7 +82,7 @@ describe("Границы листа, удаления и история", () => 
     );
     expect(events).toHaveLength(1);
     expect(events[0].title).toContain(
-      "Level 1 вылетел из Main list в Extended list на 149 место (был на 1 месте)",
+      "Level 1 вылетает в Extended list на 149 место (был на 1 месте)",
     );
     expect(events[0].title).not.toContain("Level 2 был повышен");
   });

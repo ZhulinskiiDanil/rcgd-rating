@@ -190,14 +190,18 @@ async function submit(remove = false) {
           :disabled="busy"
       /></label>
       <p class="muted">
-        Изменится только это событие. Позиции в рейтинге и другие записи истории
-        останутся прежними.
+        Сохранение изменит только это событие. Позиции в рейтинге останутся
+        прежними.
       </p>
       <p v-if="error" class="error" role="alert">{{ error }}</p>
       <div v-if="deleting" class="delete-confirm" role="alert">
         <p>
           Удалить событие из
           {{ type === "changes" ? "общей истории" : "истории этого уровня" }}?
+        </p>
+        <p v-if="type === 'changes'">
+          Все записи истории уровней, вызванные этим событием, будут удалены
+          безвозвратно.
         </p>
         <div class="actions">
           <button

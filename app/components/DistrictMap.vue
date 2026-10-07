@@ -362,11 +362,10 @@ function keyboard(event: KeyboardEvent) {
               </div>
               <div>
                 <dt>Пройденных уровней</dt>
-                <dd>{{ district.completionCount }}</dd>
-              </div>
-              <div v-if="legacyCount">
-                <dt>Legacy list</dt>
-                <dd>{{ legacyCount }}</dd>
+                <dd>
+                  {{ district.completionCount + legacyCount }}
+                  <DistrictCompletionCounts :district="district" />
+                </dd>
               </div>
             </dl>
             <NuxtLink

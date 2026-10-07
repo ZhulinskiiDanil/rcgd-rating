@@ -141,15 +141,20 @@ describe("Редактирование истории", () => {
       one<any>("SELECT deletedAt FROM changes WHERE id=1").deletedAt,
     ).toEqual(expect.any(String));
   });
-  it("скрывает удалённое общее событие, не удаляя отдельную историю уровня", async () => {
+  it("удаляет все связанные позиции безвозвратно и сохраняет несвязанную историю", async () => {
+    db().exec(
+      "INSERT INTO levelHistory(id,levelId,changeId,note,deletedAt) VALUES(2,76,1,'Related deleted','2026-10-07'),(3,77,999,'Unrelated',NULL)",
+    );
     editHistory("changes", 1, { updatedAt: null }, 7, true);
     vi.stubGlobal("defineEventHandler", (handler: unknown) => handler);
     vi.stubGlobal("getQuery", () => ({ kind: "level" }));
     const changes = (await import("../server/api/changes.get")).default;
     expect(await changes({} as never)).toEqual([]);
-    expect(
-      all("SELECT id FROM levelHistory WHERE deletedAt IS NULL"),
-    ).toHaveLength(1);
+    expect(all("SELECT id FROM levelHistory")).toEqual([{ id: 3 }]);
+    const audit = one<{ afterJson: string }>(
+      "SELECT afterJson FROM changes WHERE kind='history-delete'",
+    );
+    expect(JSON.parse(audit!.afterJson).removedLevelEvents).toBe(2);
   });
   it("сохраняет осознанное пустое примечание и скрывает удалённое событие уровня", async () => {
     const result = editHistory(

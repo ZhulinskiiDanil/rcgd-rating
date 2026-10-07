@@ -1,9 +1,14 @@
-import { dataset } from "../../database";
+import { all, dataset } from "../../database";
 import { rankings } from "../../services/rankings";
-import { effectivePercent, listTier } from "../../../shared/utils/rating";
+import {
+  effectivePercent,
+  hasLevelPage,
+  listTier,
+} from "../../../shared/utils/rating";
 import { recordVideoUrl } from "../../../shared/utils/record-video";
 import { levelVictors } from "../../../shared/utils/victors";
 import { formatPosition } from "../../../shared/utils/presentation";
+import { withoutHistoryQuotes } from "../../services/list-events";
 
 export default defineEventHandler((event) => {
   const kind = (getRouterParam(event, "kind") || "").replace(/\.csv$/, "");
@@ -103,7 +108,65 @@ export default defineEventHandler((event) => {
           r.isFirstRk ? "Да" : "",
         ]),
     ];
-  else throw createError({ statusCode: 404 });
+  else if (kind === "history") {
+    const origin = process.env.APP_ORIGIN || getRequestURL(event).origin;
+    const labels: Record<string, string> = {
+      level: "Уровни",
+      "player-rating": "Рейтинг игроков",
+      "district-rating": "Рейтинг районов",
+    };
+    const date = new Intl.DateTimeFormat("sv-SE", {
+      timeZone: "Europe/Moscow",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    });
+    rows = [
+      ["Дата (МСК)", "Тип", "Событие", "Ссылка"],
+      ...all<{
+        kind: string;
+        entityId: number | null;
+        title: string;
+        createdAt: string;
+      }>(
+        "SELECT kind,entityId,title,createdAt FROM changes WHERE public=1 AND deletedAt IS NULL AND kind IN ('level','player-rating','district-rating') ORDER BY createdAt DESC,id DESC",
+      ).map((entry) => {
+        let path = "/changelog";
+        if (
+          entry.kind === "level" &&
+          data.levels.some(
+            (level) => level.id === entry.entityId && hasLevelPage(level),
+          )
+        )
+          path = `/levels/${entry.entityId}`;
+        else if (
+          entry.kind === "player-rating" &&
+          rating.players.some(
+            (player) => player.id === entry.entityId && !player.hidden,
+          )
+        )
+          path = `/players/${entry.entityId}`;
+        else if (
+          entry.kind === "district-rating" &&
+          rating.districts.some(
+            (district) =>
+              district.id === entry.entityId &&
+              (district.completionCount || district.legacyCompletionCount),
+          )
+        )
+          path = `/districts/${entry.entityId}`;
+        return [
+          date.format(new Date(entry.createdAt)),
+          labels[entry.kind]!,
+          withoutHistoryQuotes(entry.title),
+          new URL(path, origin).href,
+        ];
+      }),
+    ];
+  } else throw createError({ statusCode: 404 });
   setResponseHeaders(event, {
     "Content-Type": "text/csv; charset=utf-8",
     "Cache-Control": "public, max-age=60",

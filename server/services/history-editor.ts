@@ -114,12 +114,21 @@ export function editHistory(
         `UPDATE ${table} SET ${keys.map((key) => `${key}=?`).join(",")} WHERE id=?`,
       )
       .run(...keys.map((key) => changes[key]), id);
+    const removedLevelEvents =
+      remove && type === "changes"
+        ? db().prepare("DELETE FROM levelHistory WHERE changeId=?").run(id)
+            .changes
+        : 0;
     logChange(
       remove ? "history-delete" : "history-edit",
       id,
       `${remove ? "Удалено" : "Изменено"} событие ${type === "changes" ? "общей истории" : "истории уровня"}`,
       { type, event: row },
-      { type, event: { ...row, ...changes } },
+      {
+        type,
+        event: { ...row, ...changes },
+        ...(remove && type === "changes" ? { removedLevelEvents } : {}),
+      },
       actorId,
       false,
     );

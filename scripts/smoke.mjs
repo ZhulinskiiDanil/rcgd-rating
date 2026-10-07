@@ -764,7 +764,7 @@ try {
   assert.ok(
     accounts.every((a) => !("passwordHash" in a) && !("sessionKey" in a)),
   );
-  for (const kind of ["levels", "players", "districts", "records"]) {
+  for (const kind of ["levels", "players", "districts", "records", "history"]) {
     const exported = await call(`/api/export/${kind}.csv`);
     assert.equal(exported.status, 200);
     assert.ok(
@@ -918,6 +918,11 @@ try {
       },
     });
     assert.equal(edited.status, 200, JSON.stringify(edited.value));
+    assert.ok(
+      (await call("/api/export/history.csv")).value.includes(
+        "Edited smoke history",
+      ),
+    );
     assert.equal(
       (
         await call(`/api/admin/history/changes/${event.id}`, {
@@ -931,6 +936,27 @@ try {
     assert.ok(
       !(await call("/api/changes")).value.some((item) => item.id === event.id),
     );
+    assert.ok(
+      !(await call("/api/export/history.csv")).value.includes(
+        "Edited smoke history",
+      ),
+    );
+    const historyCheck = new Database(databasePath, { readonly: true });
+    assert.equal(
+      historyCheck
+        .prepare("SELECT count(*) n FROM levelHistory WHERE changeId=?")
+        .get(event.id).n,
+      0,
+    );
+    const exportText = (await call("/api/export/history.csv")).value;
+    const privateEvent = historyCheck
+      .prepare(
+        "SELECT title FROM changes WHERE kind='history-edit' ORDER BY id DESC LIMIT 1",
+      )
+      .get();
+    assert.ok(privateEvent);
+    assert.ok(!exportText.includes(privateEvent.title));
+    historyCheck.close();
   }
   assert.equal(
     (await call("/api/auth/logout", { method: "POST", cookie: admin })).status,

@@ -138,5 +138,7 @@ export interface RankedDistrict extends District, Ranking {
   rank: number | null;
   playerCount: number;
   completionCount: number;
+  mainCompletionCount: number;
+  extendedCompletionCount: number;
   legacyCompletionCount: number;
 }
