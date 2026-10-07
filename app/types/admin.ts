@@ -44,6 +44,8 @@ export interface AdminData extends DataSet {
     login: string;
     nickname: string;
     displayName: string;
+    playerId: number | null;
+    playerName: string | null;
     avatarLocked: number;
     headAdmin: number;
     disabled: number;

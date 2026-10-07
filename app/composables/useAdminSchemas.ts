@@ -342,6 +342,15 @@ export function useAdminSchemas(data: Ref<AdminData | null | undefined>) {
       fields: [
         { key: "login", label: "Логин", required: true },
         { key: "nickname", label: "Отображаемый ник" },
+        {
+          key: "playerId",
+          label: "Профиль игрока",
+          type: "select",
+          nullable: true,
+          valueType: "number",
+          options: playerOptions.value,
+          help: "Выберите профиль с достижениями этого игрока. Пустое значение снимает привязку, сохраняя профиль и все его рекорды.",
+        },
         { key: "headAdmin", label: "Главный администратор", type: "checkbox" },
         {
           key: "avatarLocked",
@@ -390,6 +399,7 @@ export function useAdminSchemas(data: Ref<AdminData | null | undefined>) {
         { key: "id", label: "ID" },
         { key: "displayName", label: "Ник" },
         { key: "login", label: "Логин" },
+        { key: "playerName", label: "Профиль игрока" },
         { key: "headAdmin", label: "Главный администратор" },
         { key: "permissions", label: "Разрешения" },
         { key: "disabled", label: "Отключён" },

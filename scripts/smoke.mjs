@@ -241,6 +241,67 @@ try {
     },
   });
   assert.equal(player.status, 200, JSON.stringify(player.value));
+  const accountRow = (
+    await call("/api/admin", { cookie: admin })
+  ).value.accounts.find((account) => account.id === me.id);
+  assert.equal(accountRow.playerId, player.value.id);
+  assert.equal(accountRow.playerName, "Smoke player");
+  assert.equal(
+    (
+      await call("/api/admin/accounts", {
+        method: "POST",
+        cookie: regular,
+        body: { id: me.id, playerId: null },
+      })
+    ).status,
+    403,
+  );
+  assert.equal(
+    (
+      await call("/api/admin/accounts", {
+        method: "POST",
+        cookie: admin,
+        body: { id: me.id, playerId: null },
+      })
+    ).status,
+    200,
+  );
+  assert.equal(
+    (
+      await call("/api/auth/login", {
+        method: "POST",
+        body: { login: "regular", password },
+      })
+    ).value.url,
+    "/account/settings",
+  );
+  assert.equal(
+    (
+      await call("/api/admin/accounts", {
+        method: "POST",
+        cookie: admin,
+        body: {
+          id: me.id,
+          playerId: player.value.id,
+          nickname: accountRow.nickname,
+        },
+      })
+    ).status,
+    200,
+  );
+  assert.equal(
+    (
+      await call("/api/auth/login", {
+        method: "POST",
+        body: { login: "regular", password },
+      })
+    ).value.url,
+    `/players/${player.value.id}`,
+  );
+  assert.equal(
+    (await call("/api/catalog")).value.players[0].name,
+    "Smoke player",
+  );
   assert.equal(
     (await call("/api/catalog")).value.players[0].avatar,
     uploaded.value.url,

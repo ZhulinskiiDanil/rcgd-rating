@@ -63,7 +63,10 @@ const exitDate = (date: string | null) =>
           level.status === "legacy"
             ? "—"
             : (results[level.id]?.position ?? level.localRank)
-              ? "#" + (results[level.id]?.position ?? level.localRank)
+              ? "#" +
+                formatPosition(
+                  (results[level.id]?.position ?? level.localRank)!,
+                )
               : "—"
         }}</span>
         <span class="thumbnail"><LevelArtwork :level="level" /></span>
@@ -91,13 +94,13 @@ const exitDate = (date: string | null) =>
         <span class="level-numbers"
           ><span v-if="results[level.id]" class="result-percent"
             >{{ formatPosition(results[level.id]!.percent) }}%</span
-          ><span class="global-rank">{{
-            legacy
-              ? exitDate(level.exitedAt)
-              : level.globalRank
-                ? "#" + level.globalRank + " Global"
-                : "—"
-          }}</span></span
+          ><span class="global-rank"
+            ><template v-if="legacy">{{ exitDate(level.exitedAt) }}</template
+            ><template v-else-if="level.globalRank"
+              >#{{ level.globalRank }} <span class="global-label">Global</span
+              ><span class="mobile-global-label">GDL</span></template
+            ><template v-else>—</template></span
+          ></span
         ><AppIcon class="row-chevron" name="chevron" :size="15" />
       </component>
       <div class="row-actions">
@@ -275,6 +278,9 @@ const exitDate = (date: string | null) =>
   color: var(--muted);
   white-space: nowrap;
 }
+.mobile-global-label {
+  display: none;
+}
 .row-chevron {
   color: var(--muted);
 }
@@ -321,22 +327,23 @@ const exitDate = (date: string | null) =>
     justify-content: flex-end;
   }
   .level-row {
-    grid-template-columns: 94.8px minmax(0, 1fr) auto;
-    gap: 12px;
+    grid-template-columns: minmax(34px, max-content) 94.8px minmax(0, 1fr);
+    gap: 8px 10px;
     padding: 16px 12px;
     min-height: 106px;
     position: relative;
   }
   .thumbnail {
     height: auto;
-    grid-column: 1;
+    grid-column: 2;
     grid-row: 1;
   }
   .rank {
     grid-column: 1;
-    grid-row: 2;
+    grid-row: 1;
     font-size: 16px;
-    text-align: center;
+    text-align: left;
+    white-space: nowrap;
   }
   .level-info strong {
     font-size: 15px;
@@ -348,7 +355,7 @@ const exitDate = (date: string | null) =>
   .level-info small {
     font-size: 10px;
   }
-  .victor-line {
+  .level-info .victor-line {
     display: block;
   }
   .global-rank {
@@ -360,16 +367,15 @@ const exitDate = (date: string | null) =>
     font-size: 12px;
   }
   .level-numbers {
-    grid-column: 3;
-    grid-row: 1 / span 2;
-    flex-direction: column;
-    align-items: flex-end;
-    gap: 5px;
+    grid-column: 2 / -1;
+    grid-row: 2;
+    justify-content: flex-end;
+    gap: 12px;
     font-size: 12px;
   }
   .level-info {
-    grid-column: 2;
-    grid-row: 1 / span 2;
+    grid-column: 3;
+    grid-row: 1;
     padding-block: 4px;
   }
   .list-heading {
@@ -378,6 +384,12 @@ const exitDate = (date: string | null) =>
   }
   .list-heading span:last-child {
     display: none;
+  }
+  .global-label {
+    display: none;
+  }
+  .mobile-global-label {
+    display: inline;
   }
 }
 </style>

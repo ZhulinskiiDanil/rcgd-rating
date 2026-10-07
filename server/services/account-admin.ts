@@ -9,6 +9,7 @@ import { logChange } from "./changes";
 export const accountAdminPatchSchema = z.object({
   login: z.string().trim().min(1).max(64).optional(),
   nickname: z.string().trim().max(64).optional(),
+  playerId: z.number().int().positive().nullable().optional(),
   avatarUrl: imageUrl.optional(),
   avatarLocked: z.boolean().optional(),
   permissions: z.array(z.enum(PERMISSIONS)).optional(),
@@ -31,7 +32,24 @@ export function applyAccountAdminPatch(
     const before = account(id);
     if (!before)
       throw createError({ statusCode: 404, message: "Аккаунт не найден" });
-    const { unlinkDiscord, transferHeadAdminTo, ...fields } = value;
+    const { unlinkDiscord, transferHeadAdminTo, playerId, ...fields } = value;
+    if (playerId != null) {
+      const player = one<{ accountId: number | null }>(
+        "SELECT accountId FROM players WHERE id=? AND deletedAt IS NULL",
+        playerId,
+      );
+      if (!player)
+        throw createError({
+          statusCode: 404,
+          message: "Профиль игрока не найден",
+        });
+      if (player.accountId !== null && player.accountId !== id)
+        throw createError({
+          statusCode: 409,
+          message:
+            "Этот профиль уже привязан к другому аккаунту. Сначала отвяжите его в настройках того аккаунта.",
+        });
+    }
     if (transferHeadAdminTo != null) {
       if (!before.headAdmin || transferHeadAdminTo === id)
         throw createError({
@@ -109,7 +127,16 @@ export function applyAccountAdminPatch(
             "Нельзя закрыть доступ последнему главному администратору. Сначала назначьте другого.",
         });
     }
-    if (fields.nickname)
+    if (playerId !== undefined) {
+      db()
+        .prepare("UPDATE players SET accountId=NULL WHERE accountId=?")
+        .run(id);
+      if (playerId !== null)
+        db()
+          .prepare("UPDATE players SET accountId=? WHERE id=?")
+          .run(id, playerId);
+    }
+    if (fields.nickname && fields.nickname !== before.nickname)
       db()
         .prepare("UPDATE players SET name=? WHERE accountId=?")
         .run(fields.nickname, id);
@@ -121,6 +148,7 @@ export function applyAccountAdminPatch(
       {
         id,
         fields: Object.keys(fields),
+        ...(playerId !== undefined ? { playerId } : {}),
         unlinkDiscord: !!unlinkDiscord,
         transferHeadAdminTo: transferHeadAdminTo ?? null,
       },

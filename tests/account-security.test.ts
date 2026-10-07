@@ -45,7 +45,7 @@ beforeEach(() => {
   connection.exec(`
     CREATE TABLE accounts(id INTEGER PRIMARY KEY,login TEXT NOT NULL COLLATE NOCASE UNIQUE,nickname TEXT NOT NULL DEFAULT '',passwordHash TEXT,permissions TEXT NOT NULL DEFAULT '[]',headAdmin INTEGER NOT NULL DEFAULT 0,disabled INTEGER NOT NULL DEFAULT 0,discordAvatar TEXT,googleAvatar TEXT,avatarUrl TEXT NOT NULL DEFAULT '');
     CREATE TABLE identities(provider TEXT NOT NULL,subject TEXT NOT NULL,accountId INTEGER NOT NULL REFERENCES accounts(id),PRIMARY KEY(provider,subject),UNIQUE(provider,accountId));
-    CREATE TABLE players(id INTEGER PRIMARY KEY,name TEXT NOT NULL,accountId INTEGER REFERENCES accounts(id),deletedAt TEXT);
+    CREATE TABLE players(id INTEGER PRIMARY KEY,name TEXT NOT NULL,accountId INTEGER UNIQUE REFERENCES accounts(id),deletedAt TEXT);
     INSERT INTO accounts(id,login,nickname,passwordHash,headAdmin) VALUES(7,'Original owner','Original owner','preserved-hash',1),(8,'Member','Member','another-hash',0);
     INSERT INTO identities VALUES('discord','12345678',7),('discord','23456789',8),('google','google-subject',8);
     INSERT INTO players VALUES(42,'Member',8,NULL);
@@ -287,6 +287,144 @@ describe("Права и собственные аватарки", () => {
     expect(
       connection.prepare("SELECT name FROM players WHERE id=42").get(),
     ).toEqual({ name: "Member" });
+  });
+});
+
+describe("Привязка профиля в настройках аккаунта", () => {
+  beforeEach(() => {
+    connection.exec(`
+      INSERT INTO players VALUES(43,'Existing victor',NULL,NULL),(44,'Deleted victor',NULL,'2026-10-08');
+      CREATE TABLE records(id INTEGER PRIMARY KEY,playerId INTEGER REFERENCES players(id),percent INTEGER);
+      INSERT INTO records VALUES(1,42,100),(2,43,100),(3,43,85);
+    `);
+  });
+
+  it("привязывает существующий профиль и сохраняет его имя, достижения и данные аккаунта", () => {
+    const accountBefore = row(7);
+    const recordsBefore = connection.prepare("SELECT * FROM records").all();
+    const identitiesBefore = connection
+      .prepare("SELECT * FROM identities")
+      .all();
+    applyAccountAdminPatch(
+      7,
+      { playerId: 43, nickname: accountBefore.nickname },
+      7,
+    );
+    expect(row(7)).toEqual(accountBefore);
+    expect(
+      connection.prepare("SELECT * FROM players WHERE id=43").get(),
+    ).toEqual({
+      id: 43,
+      name: "Existing victor",
+      accountId: 7,
+      deletedAt: null,
+    });
+    expect(accountDestination(7)).toBe("/players/43");
+    expect(connection.prepare("SELECT * FROM records").all()).toEqual(
+      recordsBefore,
+    );
+    expect(connection.prepare("SELECT * FROM identities").all()).toEqual(
+      identitiesBefore,
+    );
+  });
+
+  it("переносит связь на свободный профиль, сохраняя прежний профиль и его рекорды", () => {
+    applyAccountAdminPatch(8, { playerId: 43 }, 7);
+    expect(
+      connection.prepare("SELECT accountId FROM players WHERE id=42").get(),
+    ).toEqual({ accountId: null });
+    expect(
+      connection.prepare("SELECT accountId FROM players WHERE id=43").get(),
+    ).toEqual({ accountId: 8 });
+    expect(accountDestination(8)).toBe("/players/43");
+    expect(
+      connection.prepare("SELECT * FROM records WHERE playerId=42").all(),
+    ).toEqual([{ id: 1, playerId: 42, percent: 100 }]);
+  });
+
+  it("снимает привязку только при явном пустом значении, не удаляя профиль", () => {
+    applyAccountAdminPatch(8, { playerId: null }, 7);
+    expect(accountDestination(8)).toBe("/account/settings");
+    expect(
+      connection.prepare("SELECT * FROM players WHERE id=42").get(),
+    ).toEqual({ id: 42, name: "Member", accountId: null, deletedAt: null });
+    expect(
+      connection.prepare("SELECT COUNT(*) AS count FROM records").get(),
+    ).toEqual({ count: 3 });
+  });
+
+  it("не меняет привязку, если поле не передано", () => {
+    applyAccountAdminPatch(8, { login: "new-member-login" }, 7);
+    expect(accountDestination(8)).toBe("/players/42");
+    expect(row(8).login).toBe("new-member-login");
+  });
+
+  it("повторное сохранение текущей привязки не переименовывает профиль", () => {
+    connection
+      .prepare("UPDATE players SET name='Player display name' WHERE id=42")
+      .run();
+    applyAccountAdminPatch(8, { playerId: 42, nickname: "Member" }, 7);
+    expect(
+      connection
+        .prepare("SELECT name,accountId FROM players WHERE id=42")
+        .get(),
+    ).toEqual({ name: "Player display name", accountId: 8 });
+  });
+
+  it("явное изменение ника применяется к выбранному профилю, не к отвязанному", () => {
+    applyAccountAdminPatch(
+      8,
+      { playerId: 43, nickname: "New display name" },
+      7,
+    );
+    expect(
+      connection.prepare("SELECT name FROM players WHERE id=43").get(),
+    ).toEqual({ name: "New display name" });
+    expect(
+      connection.prepare("SELECT name FROM players WHERE id=42").get(),
+    ).toEqual({ name: "Member" });
+  });
+
+  it("не забирает чужой профиль и откатывает остальные поля запроса", () => {
+    const before = row(7);
+    expect(() =>
+      applyAccountAdminPatch(7, { playerId: 42, nickname: "Changed" }, 7),
+    ).toThrow("другому аккаунту");
+    expect(row(7)).toEqual(before);
+    expect(accountDestination(8)).toBe("/players/42");
+    expect(accountDestination(7)).toBe("/account/settings");
+  });
+
+  it.each([44, 999])(
+    "отклоняет удалённый или отсутствующий профиль %i и сохраняет текущую привязку",
+    (playerId) => {
+      expect(() => applyAccountAdminPatch(8, { playerId }, 7)).toThrow(
+        "не найден",
+      );
+      expect(accountDestination(8)).toBe("/players/42");
+    },
+  );
+
+  it("не разрешает обычному или заблокированному администратору менять привязки", () => {
+    expect(() => applyAccountAdminPatch(8, { playerId: 43 }, 8)).toThrow(
+      "Недостаточно прав",
+    );
+    connection.prepare("UPDATE accounts SET disabled=1 WHERE id=7").run();
+    expect(() => applyAccountAdminPatch(8, { playerId: 43 }, 7)).toThrow(
+      "Недостаточно прав",
+    );
+    expect(accountDestination(8)).toBe("/players/42");
+  });
+
+  it("может заменить привязку к удалённому профилю без нарушения уникальности", () => {
+    connection
+      .prepare("UPDATE players SET deletedAt='2026-10-08' WHERE id=42")
+      .run();
+    applyAccountAdminPatch(8, { playerId: 43 }, 7);
+    expect(accountDestination(8)).toBe("/players/43");
+    expect(
+      connection.prepare("SELECT accountId FROM players WHERE id=42").get(),
+    ).toEqual({ accountId: null });
   });
 });
 

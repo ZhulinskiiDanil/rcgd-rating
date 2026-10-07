@@ -53,7 +53,7 @@ const runners = computed(() => props.levels.slice(1, 3));
                 (r) => r.victors.length,
               )"
               :key="row.region"
-              >{{ row.region === "spb" ? "СПб" : "ЛО" }} ·
+              >Первый в {{ row.region === "spb" ? "СПб" : "ЛО" }} ·
               {{ row.victors.map((v) => v.name).join(", ") }}</span
             >
           </div>
@@ -88,7 +88,7 @@ const runners = computed(() => props.levels.slice(1, 3));
               )"
               :key="row.region"
               class="runner-victor"
-              >{{ row.region === "spb" ? "СПб" : "ЛО" }} ·
+              >Первый в {{ row.region === "spb" ? "СПб" : "ЛО" }} ·
               {{ row.victors.map((v) => v.name).join(", ") }}</small
             ></span
           >

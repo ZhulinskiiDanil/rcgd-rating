@@ -21,6 +21,8 @@ export default defineEventHandler(async (event) => {
           login: string;
           nickname: string;
           displayName: string;
+          playerId: number | null;
+          playerName: string | null;
           avatarLocked: number;
           headAdmin: number;
           disabled: number;
@@ -28,7 +30,7 @@ export default defineEventHandler(async (event) => {
           avatarUrl: string;
           avatar: string | null;
         }>(
-          "SELECT a.id,a.login,a.nickname,COALESCE(NULLIF(p.name,''),NULLIF(a.nickname,''),a.login) AS displayName,a.headAdmin,a.disabled,a.permissions,a.avatarLocked,a.avatarUrl,COALESCE(NULLIF(a.avatarUrl,''),NULLIF(a.discordAvatar,''),NULLIF(a.googleAvatar,'')) AS avatar FROM accounts a LEFT JOIN players p ON p.accountId=a.id AND p.deletedAt IS NULL",
+          "SELECT a.id,a.login,a.nickname,p.id AS playerId,p.name AS playerName,COALESCE(NULLIF(p.name,''),NULLIF(a.nickname,''),a.login) AS displayName,a.headAdmin,a.disabled,a.permissions,a.avatarLocked,a.avatarUrl,COALESCE(NULLIF(a.avatarUrl,''),NULLIF(a.discordAvatar,''),NULLIF(a.googleAvatar,'')) AS avatar FROM accounts a LEFT JOIN players p ON p.accountId=a.id AND p.deletedAt IS NULL",
         ).map((a) => ({
           ...a,
           permissions: JSON.parse(a.permissions) as string[],
