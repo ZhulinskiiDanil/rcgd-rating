@@ -1,6 +1,7 @@
 import { db, all, one, dataset } from "../database";
 import { mutate, logChange } from "./changes";
 import { prepareRecordDates, refreshRecordDates } from "./record-dates";
+import { gameVersionBatch } from "./level-versions";
 import {
   CORE,
   SHEET,
@@ -469,18 +470,20 @@ export async function synchronize(actorId: number | null = null) {
       "SELECT COUNT(*) AS count FROM levels WHERE gdlId IS NOT NULL AND globalRank IS NOT NULL",
     )!.count;
     assertGlobalSnapshotSize(previousCount, levels.length);
-    const storedVersions = new Map(
-      all<Level>("SELECT * FROM levels").map((level) => [
-        level.gdlId,
-        level.gameVersion,
-      ]),
+    const versionCursor = one<{ value: string }>(
+      "SELECT value FROM settings WHERE key='gameVersionCursor'",
     );
-    const missingVersions = levels.filter(
-      (level) => !level.game_version && !storedVersions.get(level.id),
+    const {
+      batch: versionBatch,
+      nextCursor,
+      missingCount,
+    } = gameVersionBatch(
+      levels,
+      all<Level>("SELECT * FROM levels"),
+      Number(versionCursor?.value) || null,
     );
     let versionIndex = 0;
     let versionFailures = 0;
-    const versionBatch = missingVersions.slice(0, 200);
     await Promise.all(
       Array.from({ length: Math.min(3, versionBatch.length) }, async () => {
         while (versionIndex < versionBatch.length) {
@@ -493,13 +496,19 @@ export async function synchronize(actorId: number | null = null) {
         }
       }),
     );
+    if (nextCursor !== null)
+      db()
+        .prepare(
+          "INSERT OR REPLACE INTO settings(key,value) VALUES ('gameVersionCursor',?)",
+        )
+        .run(String(nextCursor));
     if (versionFailures)
       warnings.push(
         `Не удалось загрузить версии ${versionFailures} уровней; сохранённые значения не изменены`,
       );
-    if (missingVersions.length > versionBatch.length)
+    if (missingCount > versionBatch.length)
       warnings.push(
-        `Версии ещё ${missingVersions.length - versionBatch.length} уровней будут загружены при следующих обновлениях`,
+        `Версии ещё ${missingCount - versionBatch.length} уровней будут загружены при следующих обновлениях`,
       );
     const globalRanks = new Set(levels.map((level) => level.placement));
     const missingRanks = Array.from({ length: 150 }, (_, i) => i + 1).filter(

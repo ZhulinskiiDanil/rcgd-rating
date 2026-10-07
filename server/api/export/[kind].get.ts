@@ -3,6 +3,7 @@ import { rankings } from "../../services/rankings";
 import { effectivePercent, listTier } from "../../../shared/utils/rating";
 import { recordVideoUrl } from "../../../shared/utils/record-video";
 import { levelVictors } from "../../../shared/utils/victors";
+import { formatPosition } from "../../../shared/utils/presentation";
 
 export default defineEventHandler((event) => {
   const kind = (getRouterParam(event, "kind") || "").replace(/\.csv$/, "");
@@ -67,7 +68,7 @@ export default defineEventHandler((event) => {
           ...p.top.map((r) =>
             r.kind === "empty"
               ? ""
-              : `${r.name}${r.kind === "progress" ? ` ${r.percent}%` : ""} (#${r.position})`,
+              : `${r.name}${r.kind === "progress" ? ` ${r.percent}%` : ""} (#${formatPosition(r.position)})`,
           ),
         ]),
     ];
