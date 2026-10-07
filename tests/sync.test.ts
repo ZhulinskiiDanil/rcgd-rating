@@ -44,6 +44,47 @@ beforeEach(() => {
   applyGlobal(levels, null);
 });
 describe("Источники и сохранение данных", () => {
+  it("сохраняет исправленную дату Legacy при синхронизации и обновляет её после нового вылета", () => {
+    db().prepare("UPDATE levels SET verifiedLocal=1").run();
+    mutate("Initial list", null, () => {});
+    const level = one<{ id: number }>("SELECT id FROM levels WHERE gdlId=150")!;
+    const outside = levels.map((entry) =>
+      entry.id === 150 ? { ...entry, placement: 152 } : entry,
+    );
+    mutate("First exit", null, () => applyGlobal(outside, null));
+    expect(
+      one<any>("SELECT status FROM levels WHERE id=?", level.id)?.status,
+    ).toBe("legacy");
+    mutate("Correct exit date", null, () => {
+      db()
+        .prepare("UPDATE levels SET exitedAt=? WHERE id=?")
+        .run("2026-09-28", level.id);
+    });
+    mutate("Next synchronization", null, () => applyGlobal(outside, null));
+    expect(
+      one<any>("SELECT exitedAt FROM levels WHERE id=?", level.id),
+    ).toEqual({ exitedAt: "2026-09-28" });
+    mutate("Clear exit date", null, () => {
+      db().prepare("UPDATE levels SET exitedAt=NULL WHERE id=?").run(level.id);
+    });
+    mutate("Next synchronization", null, () => applyGlobal(outside, null));
+    expect(
+      one<any>("SELECT exitedAt FROM levels WHERE id=?", level.id),
+    ).toEqual({ exitedAt: null });
+    mutate("Returns", null, () => applyGlobal(levels, null));
+    expect(
+      one<any>("SELECT status,exitedAt FROM levels WHERE id=?", level.id),
+    ).toEqual({ status: "extended", exitedAt: null });
+    mutate("New exit", null, () => applyGlobal(outside, null));
+    const freshExit = one<{ status: string; exitedAt: string }>(
+      "SELECT status,exitedAt FROM levels WHERE id=?",
+      level.id,
+    )!;
+    expect(freshExit.status).toBe("legacy");
+    expect(Number.isFinite(Date.parse(freshExit.exitedAt))).toBe(true);
+    expect(freshExit.exitedAt).not.toBe("2026-09-28");
+  });
+
   it("не воссоздаёт каталог ниже Mika и сохраняет ранее известный уровень при будущем выпадении", () => {
     db().exec("DELETE FROM levels");
     const first = [

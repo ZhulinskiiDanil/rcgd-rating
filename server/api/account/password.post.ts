@@ -10,7 +10,10 @@ export default defineEventHandler(async (event) => {
   const value = await readValidatedBody(
     event,
     z.object({
-      password: z.string().min(12).max(128),
+      password: z
+        .string()
+        .min(8, "Пароль должен содержать не менее 8 символов")
+        .max(128),
       currentPassword: z.string().max(128).optional(),
       login: z.string().trim().min(1).max(64).optional(),
     }).parse,

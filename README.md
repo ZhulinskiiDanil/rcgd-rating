@@ -11,7 +11,7 @@ npm ci
 npm run postinstall
 cp .env.example .env
 # Заполнить NUXT_SESSION_PASSWORD (случайная строка >=32 символов),
-# HEAD_ADMIN_LOGIN и HEAD_ADMIN_PASSWORD (>=12 символов).
+# HEAD_ADMIN_LOGIN и HEAD_ADMIN_PASSWORD (>=8 символов).
 npm run bootstrap
 npm run dev
 ```
@@ -159,7 +159,7 @@ TRUST_PROXY=true
 APP_ORIGIN=https://ваш-домен
 NUXT_SESSION_PASSWORD=случайная-строка-минимум-32-символа
 HEAD_ADMIN_LOGIN=выбранный-логин
-HEAD_ADMIN_PASSWORD=случайный-пароль-минимум-12-символов
+HEAD_ADMIN_PASSWORD=случайный-пароль-минимум-8-символов
 SYNC_ENABLED=true
 SYNC_INTERVAL_MINUTES=60
 ```

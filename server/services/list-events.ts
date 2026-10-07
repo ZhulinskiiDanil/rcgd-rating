@@ -274,42 +274,52 @@ export function describeListChanges(before: Level[], after: Level[]) {
           Number(!(b.fromTier === "main" && b.toTier === "extended")) ||
         (a.toRank ?? Infinity) - (b.toRank ?? Infinity),
     );
+  const hasNewLevel = primary.some(
+    (movement) => movement.fromTier === null && movement.toRank !== null,
+  );
   const descriptions = transitions.map((movement) => {
-    if (movement.toTier === "legacy") return legacyDescription(movement);
+    if (movement.toTier === "legacy")
+      return hasNewLevel
+        ? `${movement.name} вылетел в Legacy list`
+        : legacyDescription(movement);
     const returned =
       movement.fromTier === "legacy" ||
       (movement.fromTier === "extended" && movement.toTier === "main");
     if (returned)
       return `${movement.name} вернулся в ${tierNames[movement.toTier!]}`;
+    if (hasNewLevel)
+      return `${movement.name} вылетает в ${tierNames[movement.toTier!]}`;
     return `${movement.name} вылетает в ${tierNames[movement.toTier!]} на ${movement.toRank} место${movement.fromRank !== null ? ` (был на ${movement.fromRank} месте)` : ""}${primary.includes(movement) ? neighbors(movement.toRank) : ""}`;
   });
   const ordinary = primary.filter(
     (movement) => !transitions.includes(movement),
   );
   const removed = ordinary.filter((movement) => movement.toTier === null);
+  const remaining = ordinary.filter((movement) => !removed.includes(movement));
+  const ordinaryDescriptions = remaining.slice(0, 5).map((movement) => {
+    if (movement.toRank === null)
+      return movement.toTier === "legacy"
+        ? legacyDescription(movement)
+        : `${movement.name} удалён из листа`;
+    if (movement.fromTier === "legacy")
+      return `${movement.name} вернулся в ${tierNames[movement.toTier!]}`;
+    if (movement.fromRank === null)
+      return `${movement.name} поставлен в топ на ${movement.toRank} место${neighbors(movement.toRank)}`;
+    return `${movement.name} был ${movement.toRank < movement.fromRank ? "повышен" : "понижен"} с ${movement.fromRank} на ${movement.toRank} место${neighbors(movement.toRank)}`;
+  });
+  if (hasNewLevel) descriptions.unshift(...ordinaryDescriptions);
+  else descriptions.push(...ordinaryDescriptions);
   descriptions.unshift(
     ...removed.map((movement) => `${movement.name} удалён из листа`),
-  );
-  const remaining = ordinary.filter((movement) => !removed.includes(movement));
-  descriptions.push(
-    ...remaining.slice(0, 5).map((movement) => {
-      if (movement.toRank === null)
-        return movement.toTier === "legacy"
-          ? legacyDescription(movement)
-          : `${movement.name} удалён из листа`;
-      if (movement.fromTier === "legacy")
-        return `${movement.name} вернулся в ${tierNames[movement.toTier!]}`;
-      if (movement.fromRank === null)
-        return `${movement.name} поставлен в топ на ${movement.toRank} место${neighbors(movement.toRank)}`;
-      return `${movement.name} был ${movement.toRank < movement.fromRank ? "повышен" : "понижен"} с ${movement.fromRank} на ${movement.toRank} место${neighbors(movement.toRank)}`;
-    }),
   );
   if (remaining.length > 5)
     descriptions.push(`и ещё ${remaining.length - 5} изменений порядка`);
   if (!descriptions.length)
     descriptions.push("Обновлён порядок уровней в листе");
   return {
-    title: withoutHistoryQuotes(descriptions.join(". ")),
+    title: withoutHistoryQuotes(
+      descriptions.join(". ") + (hasNewLevel ? "." : ""),
+    ),
     movements,
     entityId: primary.length === 1 ? primary[0]!.levelId : null,
   };

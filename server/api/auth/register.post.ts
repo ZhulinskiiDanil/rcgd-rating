@@ -12,7 +12,10 @@ export default defineEventHandler(async (event) => {
         .trim()
         .regex(/^[a-zA-Z0-9_.-]{3,32}$/),
       nickname: z.string().trim().min(1).max(64).optional(),
-      password: z.string().min(12).max(128),
+      password: z
+        .string()
+        .min(8, "Пароль должен содержать не менее 8 символов")
+        .max(128),
     }).parse,
   );
   const id = db().transaction(() => {

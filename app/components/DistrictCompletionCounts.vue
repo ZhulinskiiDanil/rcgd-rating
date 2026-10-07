@@ -16,15 +16,16 @@ const counts = computed(() =>
 </script>
 <template>
   <small v-if="counts.length" class="completion-lists">
-    <span v-for="item in counts" :key="item.label"
-      >{{ item.label }}: {{ item.count }}</span
-    >
+    <span class="completion-list-items">
+      <span v-for="item in counts" :key="item.label"
+        >{{ item.label }}: {{ item.count }}</span
+      >
+    </span>
   </small>
 </template>
 <style scoped lang="scss">
 .completion-lists {
-  display: grid;
-  gap: 4px;
+  display: block;
   margin-top: 8px;
   color: var(--muted);
   font-size: 13px;
@@ -32,5 +33,9 @@ const counts = computed(() =>
   line-height: 1.4;
   letter-spacing: normal;
   white-space: nowrap;
+}
+.completion-list-items {
+  display: grid;
+  gap: 6px;
 }
 </style>

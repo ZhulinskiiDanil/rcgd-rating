@@ -1,5 +1,6 @@
 import { all } from "../database";
 import { withoutHistoryQuotes } from "../services/list-events";
+import { formatDistrictHistory } from "../services/district-history";
 export default defineEventHandler((event) => {
   const query = getQuery(event);
   if (
@@ -15,6 +16,12 @@ export default defineEventHandler((event) => {
     : "level";
   const search =
     typeof query.search === "string" ? query.search.trim().slice(0, 200) : "";
+  const districtNames =
+    kind === "district-rating"
+      ? all<{ name: string }>("SELECT name FROM districts").map(
+          (row) => row.name,
+        )
+      : [];
   return all<{
     id: number;
     kind: string;
@@ -27,5 +34,12 @@ export default defineEventHandler((event) => {
     kind,
     `%${search.replace(/[!%_]/g, "!$&")}%`,
     (page - 1) * 50,
-  ).map((row) => ({ ...row, title: withoutHistoryQuotes(row.title) }));
+  ).map((row) => ({
+    ...row,
+    title: withoutHistoryQuotes(
+      row.kind === "district-rating"
+        ? formatDistrictHistory(row.title, districtNames)
+        : row.title,
+    ),
+  }));
 });

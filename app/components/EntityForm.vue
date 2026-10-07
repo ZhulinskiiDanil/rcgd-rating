@@ -66,6 +66,8 @@ function initialize() {
       : (props.defaults?.[field.key] ?? field.default);
     if (field.key === "thresholdSource" && value && value !== "manual")
       value = "coreboard";
+    if (field.type === "date" && typeof value === "string")
+      value = value.slice(0, 10);
     values[field.key] =
       field.type === "checkbox"
         ? !!value

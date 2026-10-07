@@ -66,6 +66,7 @@ const schemas = {
     verificationPlayerId: id.nullable().optional(),
     verificationRegion: z.enum(["spb", "lo"]).nullable().optional(),
     verificationDate: date.optional(),
+    exitedAt: date.optional(),
     listExcluded: z.boolean().optional(),
     manualPosition: z.number().int().min(1).max(150).nullable().optional(),
     ingameId: optionalId.optional(),
@@ -221,6 +222,12 @@ export default defineEventHandler(async (event) => {
       }
       if (resource === "levels") {
         const level = schemas.levels.parse(value);
+        if (level.exitedAt != null && before?.status !== "legacy")
+          throw createError({
+            statusCode: 400,
+            message:
+              "Дату вылета можно указать только для уровня в Legacy List",
+          });
         const verifier =
           level.verificationPlayerId === undefined
             ? before?.verificationPlayerId

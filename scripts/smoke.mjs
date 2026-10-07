@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import Database from "better-sqlite3";
 
 const origin = "http://127.0.0.1:3100";
-const password = randomBytes(24).toString("base64url");
+const password = randomBytes(6).toString("base64url");
 const databasePath = join(
   mkdtempSync(join(tmpdir(), "spb-http-")),
   "test.sqlite",
@@ -183,6 +183,16 @@ try {
       })
     ).status,
     403,
+  );
+  assert.equal(password.length, 8);
+  assert.equal(
+    (
+      await call("/api/auth/register", {
+        method: "POST",
+        body: { login: "regular", password: password.slice(0, 7) },
+      })
+    ).status,
+    400,
   );
   const registered = await call("/api/auth/register", {
     method: "POST",
@@ -697,6 +707,57 @@ try {
     "legacy",
   );
   assert.equal(boundary.players[0].inactive, 1);
+  const legacyLevel = boundary.levels.find((l) => l.id === fakeLevel.value.id);
+  const legacyDateFields = {
+    id: legacyLevel.id,
+    name: legacyLevel.name,
+    verifiedLocal: Boolean(legacyLevel.verifiedLocal),
+  };
+  const editedExitDate = "2026-09-28";
+  assert.equal(
+    (
+      await call("/api/admin/levels", {
+        method: "POST",
+        cookie: admin,
+        body: { ...legacyDateFields, exitedAt: editedExitDate },
+      })
+    ).status,
+    200,
+  );
+  assert.equal(
+    (await call("/api/catalog")).value.levels.find(
+      (l) => l.id === legacyLevel.id,
+    ).exitedAt,
+    editedExitDate,
+  );
+  for (const exitedAt of ["2026-02-30", "nonsense"]) {
+    assert.equal(
+      (
+        await call("/api/admin/levels", {
+          method: "POST",
+          cookie: admin,
+          body: { ...legacyDateFields, exitedAt },
+        })
+      ).status,
+      400,
+    );
+  }
+  const activeLevel = boundary.levels.find((l) => l.status === "main");
+  assert.equal(
+    (
+      await call("/api/admin/levels", {
+        method: "POST",
+        cookie: admin,
+        body: {
+          id: activeLevel.id,
+          name: activeLevel.name,
+          verifiedLocal: Boolean(activeLevel.verifiedLocal),
+          exitedAt: editedExitDate,
+        },
+      })
+    ).status,
+    400,
+  );
   assert.equal(
     (
       await call("/api/admin/records", {
@@ -706,6 +767,12 @@ try {
       })
     ).status,
     200,
+  );
+  assert.equal(
+    (await call("/api/catalog")).value.levels.find(
+      (l) => l.id === legacyLevel.id,
+    ).exitedAt,
+    editedExitDate,
   );
   assert.equal(
     (
@@ -937,6 +1004,24 @@ try {
     ).status,
     403,
   );
+  assert.equal(
+    (
+      await call("/api/account/password", {
+        method: "POST",
+        cookie: recoveryLogin.cookie,
+        body: {
+          currentPassword: temporary.value.password,
+          password: password.slice(0, 7),
+        },
+      })
+    ).status,
+    400,
+  );
+  assert.equal(
+    (await call("/api/auth/me", { cookie: recoveryLogin.cookie })).value
+      .passwordResetRequired,
+    true,
+  );
   const personal = await call("/api/account/password", {
     method: "POST",
     cookie: recoveryLogin.cookie,
@@ -947,6 +1032,15 @@ try {
     (await call("/api/auth/me", { cookie: personal.cookie })).value
       .passwordResetRequired,
     false,
+  );
+  assert.equal(
+    (
+      await call("/api/auth/login", {
+        method: "POST",
+        body: { login: "recovery-player", password },
+      })
+    ).status,
+    200,
   );
   assert.equal(
     (await call("/api/auth/login", { method: "POST", body: temporary.value }))

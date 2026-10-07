@@ -3,6 +3,7 @@ import { reconcileList, effectivePercent } from "../../shared/utils/rating";
 import type { DataSet } from "../../shared/types/domain";
 import { rankings } from "./rankings";
 import { describeListChanges } from "./list-events";
+import { districtGenitive } from "./district-history";
 
 const publicKinds = new Set(["level", "player-rating", "district-rating"]);
 
@@ -154,11 +155,13 @@ export function mutate<T>(
               : null;
           const lower =
             rows[position + 1]?.rank !== null ? rows[position + 1]?.name : null;
+          const neighborName = (name: string) =>
+            type === "districts" ? districtGenitive(name) : name;
           const movement =
             wasRanked && old?.rank
               ? `${row.rank! < old.rank ? "поднялся" : "опустился"} с ${old.rank} на ${row.rank} место`
               : `вошёл в рейтинг на ${row.rank} место`;
-          title = `${row.name} ${movement} с ${row.score.toFixed(2)} очками${lower ? ` выше ${lower}` : ""}${higher ? `${lower ? " и" : ""} ниже ${higher}` : ""}`;
+          title = `${row.name} ${movement} с ${row.score.toFixed(2)} очками${lower ? ` выше ${neighborName(lower)}` : ""}${higher ? `${lower ? " и" : ""} ниже ${neighborName(higher)}` : ""}`;
         }
         logChange(
           type === "players" ? "player-rating" : "district-rating",

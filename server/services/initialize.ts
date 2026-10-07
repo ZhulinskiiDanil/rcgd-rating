@@ -9,10 +9,10 @@ export function initializeHeadAdmin() {
     !login ||
     !/^[a-zA-Z0-9_.-]{3,32}$/.test(login) ||
     !password ||
-    password.length < 12
+    password.length < 8
   )
     throw new Error(
-      "Задайте HEAD_ADMIN_LOGIN (3–32 латинских символа) и HEAD_ADMIN_PASSWORD (минимум 12 символов)",
+      "Задайте HEAD_ADMIN_LOGIN (3–32 латинских символа) и HEAD_ADMIN_PASSWORD (минимум 8 символов)",
     );
   if (one("SELECT id FROM accounts WHERE login=?", login))
     throw new Error(

@@ -80,7 +80,7 @@ async function submit() {
               v-model="password"
               :type="showPassword ? 'text' : 'password'"
               :autocomplete="register ? 'new-password' : 'current-password'"
-              :minlength="register ? 12 : 1"
+              :minlength="register ? 8 : 1"
               maxlength="128"
               required
             /><button
@@ -93,7 +93,7 @@ async function submit() {
           ></label
         >
         <small v-if="register"
-          >Логин — 3–32 латинских символа, цифры, _, . или -. Пароль — от 12
+          >Логин — 3–32 латинских символа, цифры, _, . или -. Пароль — от 8
           символов. Видимые ники могут совпадать.</small
         >
         <p v-if="error" class="error" role="alert">{{ error }}</p>

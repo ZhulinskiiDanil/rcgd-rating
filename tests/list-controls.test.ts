@@ -61,9 +61,8 @@ describe("Границы листа, удаления и история", () => 
     );
     expect(events).toHaveLength(1);
     expect(events[0].title).toContain("New hardest поставлен в топ на 1 место");
-    expect(events[0].title).toMatch(/^Level 75 вылетает в Extended list/);
-    expect(events[0].title).toContain(
-      "Level 150 вылетел в Legacy list с 150 места",
+    expect(events[0].title).toBe(
+      "New hardest поставлен в топ на 1 место выше Level 1. Level 75 вылетает в Extended list. Level 150 вылетел в Legacy list.",
     );
     expect(all("SELECT * FROM levelHistory")).toHaveLength(151);
     expect(

@@ -145,6 +145,19 @@ export function useAdminSchemas(data: Ref<AdminData | null | undefined>) {
           help: "Сними флажок, чтобы вернуть удалённый уровень. Данные прохождений сохраняются.",
         },
         {
+          key: "exitedAt",
+          label: "Дата вылета в Legacy List",
+          type: "date",
+          visibleWhen: {
+            key: "id",
+            values:
+              data.value?.levels
+                .filter((level) => level.status === "legacy")
+                .map((level) => level.id) ?? [],
+          },
+          help: "Исправленная дата сохраняется при синхронизации. Если уровень вернётся в лист и вылетит снова, будет указана новая дата вылета.",
+        },
+        {
           key: "previewImage",
           label: "Превью уровня",
           type: "image",

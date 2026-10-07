@@ -208,7 +208,7 @@ async function logout() {
           >Новый пароль<input
             v-model="password"
             type="password"
-            minlength="12"
+            minlength="8"
             maxlength="128"
             required
             autocomplete="new-password"
@@ -217,13 +217,13 @@ async function logout() {
           >Повторите новый пароль<input
             v-model="confirmation"
             type="password"
-            minlength="12"
+            minlength="8"
             maxlength="128"
             required
             autocomplete="new-password"
         /></label>
         <small
-          >Не менее 12 символов. После смены пароля другие устройства выйдут из
+          >Не менее 8 символов. После смены пароля другие устройства выйдут из
           аккаунта.</small
         >
         <button class="primary" :disabled="busy">

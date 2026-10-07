@@ -98,13 +98,33 @@ describe("Причины перестановок уровней", () => {
       one<{ note: string }>("SELECT note FROM levelHistory WHERE levelId=150")
         ?.note,
     ).toBe("New level поставлен выше этого уровня");
-    expect(publicEvents("level")[0]?.title).toMatch(
-      /^Level 75 вылетает в Extended list/,
-    );
-    expect(publicEvents("level")[0]?.title).toContain(
-      "Level 150 вылетел в Legacy list с 150 места. New level поставлен выше этого уровня",
+    expect(publicEvents("level")[0]?.title).toBe(
+      "New level поставлен в топ на 13 место выше Level 13 и ниже Level 12. Level 75 вылетает в Extended list. Level 150 вылетел в Legacy list.",
     );
     expect(publicEvents("level")[0]?.title).not.toMatch(/[«»"]/);
+  });
+  it("постановка в Extended даёт короткий вылет в Legacy только в общей истории", () => {
+    mutate("Add to extended", null, () =>
+      db()
+        .prepare(
+          "INSERT INTO levels(id,name,globalRank,verifiedLocal) VALUES(200,'Silent Club',92.5,1)",
+        )
+        .run(),
+    );
+    expect(publicEvents("level")[0]?.title).toBe(
+      "Silent Club поставлен в топ на 93 место выше Level 93 и ниже Level 92. Level 150 вылетел в Legacy list.",
+    );
+    expect(
+      one<any>(
+        "SELECT fromRank,toRank,fromTier,toTier,note FROM levelHistory WHERE levelId=150",
+      ),
+    ).toEqual({
+      fromRank: 150,
+      toRank: null,
+      fromTier: "extended",
+      toTier: "legacy",
+      note: "Silent Club поставлен выше этого уровня",
+    });
   });
   it("явно сообщает о возвращении из Extended в Main до остальных изменений", () => {
     mutate("Return to main", null, () =>
