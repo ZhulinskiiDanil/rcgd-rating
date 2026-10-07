@@ -115,6 +115,11 @@ useHead({ title: "История изменений · СПб Demonlist" });
                   >{{ c.title }}</NuxtLink
                 ><span v-else>{{ c.title }}</span>
               </p>
+              <HistoryEventEditor
+                type="changes"
+                :event="c"
+                @saved="refresh()"
+              />
             </div>
           </li>
         </ol>

@@ -85,6 +85,8 @@ const schemas = {
     manualVideo: url.default(""),
     active: z.boolean(),
     isFirstRk: z.boolean().optional(),
+    isFirstSpb: z.boolean().optional(),
+    isFirstLo: z.boolean().optional(),
     achievedAt: date.optional(),
     dateSource: z.enum(["manual", "video"]).nullable().optional(),
     sourceVideo: z.string().max(2048).optional(),
@@ -278,6 +280,30 @@ export default defineEventHandler(async (event) => {
         const record = schemas.records.parse(value);
         delete fields.discardImported;
         Object.assign(fields, preparedRecord, recordDates);
+        const region = one<{ region: "spb" | "lo" | null }>(
+          "SELECT d.region FROM players p LEFT JOIN districts d ON d.id=p.districtId WHERE p.id=? AND p.deletedAt IS NULL",
+          record.playerId,
+        )?.region;
+        fields.isFirstSpb =
+          region === "spb"
+            ? Number(record.isFirstSpb ?? previousRecord?.isFirstSpb ?? 0)
+            : 0;
+        fields.isFirstLo =
+          region === "lo"
+            ? Number(record.isFirstLo ?? previousRecord?.isFirstLo ?? 0)
+            : 0;
+        if (
+          (fields.isFirstSpb || fields.isFirstLo) &&
+          Math.max(
+            preparedRecord!.manualPercent ?? 0,
+            preparedRecord!.importedPercent ?? 0,
+          ) !== 100
+        )
+          throw createError({
+            statusCode: 400,
+            message:
+              "Первым региональным виктором можно отметить только прохождение на 100%.",
+          });
         fields.updatedAt = new Date().toISOString();
         if (record.discardImported && record.id) {
           logChange(

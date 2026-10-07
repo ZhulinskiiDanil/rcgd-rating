@@ -825,6 +825,113 @@ try {
     ).status,
     401,
   );
+  const recoveryAccount = await call("/api/auth/register", {
+    method: "POST",
+    body: { login: "recovery-player", password },
+  });
+  assert.equal(recoveryAccount.status, 200);
+  const recoveryId = (
+    await call("/api/auth/me", { cookie: recoveryAccount.cookie })
+  ).value.id;
+  assert.equal(
+    (
+      await call("/api/admin/account-password", {
+        method: "POST",
+        cookie: recoveryAccount.cookie,
+        body: { id: adminId },
+      })
+    ).status,
+    403,
+  );
+  const temporary = await call("/api/admin/account-password", {
+    method: "POST",
+    cookie: admin,
+    body: { id: recoveryId },
+  });
+  assert.equal(temporary.status, 200);
+  assert.equal(
+    Boolean(
+      (await call("/api/auth/me", { cookie: recoveryAccount.cookie })).value,
+    ),
+    false,
+  );
+  const recoveryLogin = await call("/api/auth/login", {
+    method: "POST",
+    body: temporary.value,
+  });
+  assert.equal(recoveryLogin.status, 200);
+  assert.equal(recoveryLogin.value.url, "/account/settings");
+  assert.equal(
+    (await call("/api/auth/me", { cookie: recoveryLogin.cookie })).value
+      .passwordResetRequired,
+    true,
+  );
+  assert.equal(
+    (
+      await call("/api/account/profile", {
+        method: "PATCH",
+        cookie: recoveryLogin.cookie,
+        body: { nickname: "Not yet" },
+      })
+    ).status,
+    403,
+  );
+  const personal = await call("/api/account/password", {
+    method: "POST",
+    cookie: recoveryLogin.cookie,
+    body: { currentPassword: temporary.value.password, password },
+  });
+  assert.equal(personal.status, 200);
+  assert.equal(
+    (await call("/api/auth/me", { cookie: personal.cookie })).value
+      .passwordResetRequired,
+    false,
+  );
+  assert.equal(
+    (await call("/api/auth/login", { method: "POST", body: temporary.value }))
+      .status,
+    401,
+  );
+  if (events.length) {
+    const event = events[0];
+    assert.equal(
+      (
+        await call(`/api/admin/history/changes/${event.id}`, {
+          method: "PATCH",
+          cookie: personal.cookie,
+          body: {
+            updatedAt: event.updatedAt,
+            title: "Denied",
+            createdAt: event.createdAt,
+          },
+        })
+      ).status,
+      403,
+    );
+    const edited = await call(`/api/admin/history/changes/${event.id}`, {
+      method: "PATCH",
+      cookie: admin,
+      body: {
+        updatedAt: event.updatedAt,
+        title: "Edited smoke history",
+        createdAt: event.createdAt,
+      },
+    });
+    assert.equal(edited.status, 200, JSON.stringify(edited.value));
+    assert.equal(
+      (
+        await call(`/api/admin/history/changes/${event.id}`, {
+          method: "DELETE",
+          cookie: admin,
+          body: { updatedAt: edited.value.updatedAt },
+        })
+      ).status,
+      200,
+    );
+    assert.ok(
+      !(await call("/api/changes")).value.some((item) => item.id === event.id),
+    );
+  }
   assert.equal(
     (await call("/api/auth/logout", { method: "POST", cookie: admin })).status,
     200,

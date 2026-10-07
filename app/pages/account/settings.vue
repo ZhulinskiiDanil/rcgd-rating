@@ -38,7 +38,8 @@ async function savePassword() {
   }
   busy.value = true;
   try {
-    await $fetch("/api/account/password", {
+    const completingReset = !!user.value?.passwordResetRequired;
+    const result = await $fetch("/api/account/password", {
       method: "POST",
       body: {
         login: login.value,
@@ -51,8 +52,11 @@ async function savePassword() {
     confirmation.value = "";
     await refresh();
     message.value = "Логин и пароль сохранены.";
+    if (completingReset && result.url !== "/account/settings")
+      await navigateTo(result.url);
   } catch (cause: any) {
     error.value = cause.data?.message || "Не удалось сохранить пароль.";
+    if (cause.statusCode === 403 || cause.status === 403) await refresh();
   } finally {
     busy.value = false;
   }
@@ -130,7 +134,10 @@ async function logout() {
     </div>
     <p v-if="error" class="error" role="alert">{{ error }}</p>
     <p v-if="message" class="status" role="status">{{ message }}</p>
-    <section class="panel profile-settings">
+    <p v-if="user.passwordResetRequired" class="status" role="status">
+      Вы вошли с временным паролем. Замените его на свой, чтобы продолжить.
+    </p>
+    <section v-if="!user.passwordResetRequired" class="panel profile-settings">
       <div class="avatar-settings">
         <UserAvatar :name="user.nickname" :url="user.avatar" class="avatar" />
         <div>
@@ -166,7 +173,13 @@ async function logout() {
     </section>
     <section class="panel password-settings">
       <h2>
-        {{ user.hasPassword ? "Логин и пароль" : "Задайте логин и пароль" }}
+        {{
+          user.passwordResetRequired
+            ? "Замените временный пароль"
+            : user.hasPassword
+              ? "Логин и пароль"
+              : "Задайте логин и пароль"
+        }}
       </h2>
       <form
         v-if="user.hasPassword || user.canResetPassword"
@@ -179,8 +192,12 @@ async function logout() {
             maxlength="64"
             autocomplete="username"
         /></label>
-        <label v-if="!user.canResetPassword"
-          >Действующий пароль<input
+        <label v-if="!user.canResetPassword || user.passwordResetRequired"
+          >{{
+            user.passwordResetRequired
+              ? "Временный пароль"
+              : "Действующий пароль"
+          }}<input
             v-model="currentPassword"
             type="password"
             required

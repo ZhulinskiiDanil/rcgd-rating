@@ -25,6 +25,17 @@ export function useAdminSchemas(data: Ref<AdminData | null | undefined>) {
         label: `${d.name} · ${d.region === "spb" ? "СПб" : "ЛО"}`,
       })) ?? [],
   );
+  const regionPlayers = (region: "spb" | "lo") =>
+    data.value?.players
+      .filter(
+        (player) =>
+          !player.deletedAt &&
+          data.value?.districts.some(
+            (district) =>
+              district.id === player.districtId && district.region === region,
+          ),
+      )
+      .map((player) => player.id) ?? [];
   return computed<Record<EntityResource, EntitySchema>>(() => ({
     players: {
       fields: [
@@ -260,6 +271,20 @@ export function useAdminSchemas(data: Ref<AdminData | null | undefined>) {
           help: "Для исправления исчезнувшего или пониженного рекорда. Актуальный принятый результат может вернуться при следующем импорте.",
         },
         { key: "isFirstRk", label: "Первый РК виктор", type: "checkbox" },
+        {
+          key: "isFirstSpb",
+          label: "Первый СПб виктор",
+          type: "checkbox",
+          visibleWhen: { key: "playerId", values: regionPlayers("spb") },
+          help: "Ручная отметка первого виктора имеет приоритет над датами прохождений.",
+        },
+        {
+          key: "isFirstLo",
+          label: "Первый ЛО виктор",
+          type: "checkbox",
+          visibleWhen: { key: "playerId", values: regionPlayers("lo") },
+          help: "Ручная отметка первого виктора имеет приоритет над датами прохождений.",
+        },
       ],
       columns: [
         { key: "id", label: "ID" },

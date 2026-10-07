@@ -251,7 +251,11 @@ useHead({ title: () => `${player.value?.name} · СПб Demonlist` });
       <UserAvatar :name="player.name" :url="player.avatar" size="large" />
       <div class="identity-text">
         <h1 :class="{ inactive: player.inactive }">{{ player.name }}</h1>
-        <p v-if="player.role" class="role-label">
+        <p
+          v-if="player.role"
+          class="role-label"
+          :class="{ 'head-admin': player.role === 'head-admin' }"
+        >
           {{
             player.role === "head-admin"
               ? "Главный администратор"
@@ -316,8 +320,16 @@ useHead({ title: () => `${player.value?.name} · СПб Demonlist` });
       <h2>Шесть лучших результатов</h2>
       <span>Прохождения и прогрессы</span>
     </div>
-    <RatingBreakdown :rating="player" :levels="data.levels" />
-    <ForecastCalculator entity-type="players" :entity-id="id" />
+    <RatingBreakdown
+      :rating="player"
+      :levels="data.levels"
+      :show-formula="false"
+    />
+    <ForecastCalculator
+      entity-type="players"
+      :entity-id="id"
+      :show-formula="false"
+    />
     <div class="section-heading">
       <h2>
         Достижения <span class="count">{{ records.length }}</span>
@@ -371,9 +383,17 @@ useHead({ title: () => `${player.value?.name} · СПб Demonlist` });
 .inactive {
   color: var(--danger);
 }
-.role-label {
+.identity-text .role-label {
+  display: inline-flex;
+  color: var(--accent);
+  border: 1px solid currentColor;
+  border-radius: 6px;
+  padding: 5px 9px;
   font-size: 14px;
   margin: 0 0 10px;
+  &.head-admin {
+    color: var(--warm);
+  }
 }
 .hardest-panel {
   display: flex;

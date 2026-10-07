@@ -28,6 +28,7 @@ export interface Field {
   options?: { value: string | number; label: string; disabled?: boolean }[];
   help?: string;
   default?: unknown;
+  visibleWhen?: { key: string; values: (string | number)[] };
 }
 
 export interface EntitySchema {

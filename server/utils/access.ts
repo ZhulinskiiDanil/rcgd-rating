@@ -8,10 +8,18 @@ export async function currentAccount(event: H3Event) {
   const value = account(session.user.id);
   return sessionMatchesAccount(session, value) ? value! : null;
 }
-export async function requireAccount(event: H3Event) {
+export async function requireAccount(
+  event: H3Event,
+  allowPasswordReset = false,
+) {
   const user = await currentAccount(event);
   if (!user)
     throw createError({ statusCode: 401, message: "Войдите в аккаунт" });
+  if (user.passwordResetRequired && !allowPasswordReset)
+    throw createError({
+      statusCode: 403,
+      message: "Сначала замените временный пароль в настройках профиля",
+    });
   return user;
 }
 export async function requirePermission(

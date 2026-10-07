@@ -134,8 +134,14 @@ useHead({ title: () => `${district.value?.name} · СПб Demonlist` });
       :rating="district"
       :levels="data.levels"
       :victors-by-level="victorsByLevel"
+      :show-formula="false"
     />
-    <ForecastCalculator entity-type="districts" :entity-id="id" />
+    <ForecastCalculator
+      entity-type="districts"
+      :entity-id="id"
+      :show-formula="false"
+    />
+    <DistrictMap :districts="data.districts" :focus-district-id="district.id" />
     <div class="section-heading">
       <h2>
         Игроки района <span class="count">{{ players.length }}</span>

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Database from "better-sqlite3";
 import { migrateAccountSecurity } from "../server/database/account-security";
 import { sessionMatchesAccount } from "../server/services/account-session";
+import { createError } from "h3";
 
 let connection: Database.Database;
 vi.mock("../server/database", () => ({
@@ -31,7 +32,10 @@ const { hashSecret } = await import("../server/services/password");
 const { applyAccountAdminPatch } =
   await import("../server/services/account-admin");
 const { saveOwnAvatar } = await import("../server/services/account-avatar");
-const { currentAccount } = await import("../server/utils/access");
+const { currentAccount, requireAccount } =
+  await import("../server/utils/access");
+const { resetAccountPassword } =
+  await import("../server/services/account-recovery");
 const row = (id: number) =>
   connection.prepare("SELECT * FROM accounts WHERE id=?").get(id) as any;
 
@@ -389,5 +393,92 @@ describe("Пароль и безопасное восстановление ст
       .prepare("UPDATE players SET deletedAt='2026-10-07' WHERE id=42")
       .run();
     expect(accountDestination(8)).toBe("/account/settings");
+  });
+});
+
+describe("Восстановление пароля главным администратором", () => {
+  it("сохраняет аккаунт, права, привязки и достижения; отзывает только сессии получателя", () => {
+    const target = row(8),
+      owner = row(7);
+    const result = resetAccountPassword(8, 7);
+    expect(result.login).toBe("Member");
+    expect(result.password.length).toBeGreaterThanOrEqual(20);
+    expect(row(8)).toMatchObject({
+      id: 8,
+      login: target.login,
+      permissions: target.permissions,
+      headAdmin: 0,
+      passwordResetRequired: 1,
+    });
+    expect(row(8).passwordHash).not.toContain(result.password);
+    expect(row(8).sessionKey).not.toBe(target.sessionKey);
+    expect(row(7)).toEqual(owner);
+    expect(connection.prepare("SELECT * FROM identities").all()).toHaveLength(
+      3,
+    );
+    expect(
+      connection.prepare("SELECT accountId FROM players WHERE id=42").get(),
+    ).toEqual({ accountId: 8 });
+    expect(authenticatePassword(result.login, result.password).id).toBe(8);
+    expect(accountDestination(8)).toBe("/account/settings");
+    const key = row(8).sessionKey;
+    expect(() =>
+      changeOwnPassword(
+        8,
+        key,
+        { currentPassword: result.password, password: result.password },
+        false,
+      ),
+    ).toThrow("отличаться");
+    changeOwnPassword(
+      8,
+      key,
+      {
+        currentPassword: result.password,
+        password: "My-personal-password-2026",
+      },
+      false,
+    );
+    expect(row(8).passwordResetRequired).toBe(0);
+    expect(accountDestination(8)).toBe("/players/42");
+    expect(() => authenticatePassword(result.login, result.password)).toThrow(
+      "Неверный",
+    );
+    expect(
+      authenticatePassword(result.login, "My-personal-password-2026").id,
+    ).toBe(8);
+  });
+  it("не позволяет обычному или заблокированному аккаунту выдавать пароли, не сбрасывает собственный", () => {
+    const before = row(7);
+    expect(() => resetAccountPassword(7, 8)).toThrow("Недостаточно");
+    expect(() => resetAccountPassword(7, 7)).toThrow("Свой пароль");
+    expect(row(7)).toEqual(before);
+    connection.prepare("UPDATE accounts SET disabled=1 WHERE id=7").run();
+    expect(() => resetAccountPassword(8, 7)).toThrow("Недостаточно");
+  });
+  it("до смены временного пароля запрещает защищённые действия, включая обход через OAuth", async () => {
+    const issued = resetAccountPassword(8, 7);
+    vi.stubGlobal("createError", createError);
+    vi.stubGlobal("getUserSession", async () => ({
+      user: { id: 8 },
+      secure: { accountKey: row(8).sessionKey },
+    }));
+    await expect(requireAccount({} as any)).rejects.toThrow("временный пароль");
+    expect((await requireAccount({} as any, true)).id).toBe(8);
+    expect(() =>
+      changeOwnPassword(
+        8,
+        row(8).sessionKey,
+        { password: "Another-password-2026" },
+        true,
+      ),
+    ).toThrow("действующий пароль");
+    changeOwnPassword(
+      8,
+      row(8).sessionKey,
+      { currentPassword: issued.password, password: "Another-password-2026" },
+      true,
+    );
+    expect((await requireAccount({} as any)).id).toBe(8);
   });
 });

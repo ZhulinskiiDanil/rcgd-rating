@@ -38,6 +38,60 @@ const record = (
 });
 
 describe("Викторы и даты", () => {
+  it("ручной первый виктор имеет приоритет над более ранними датами и сохраняет отметку РК", () => {
+    const d = data();
+    d.records = [
+      record(1, "2024-01-01"),
+      { ...record(3, "2025-01-01"), isFirstSpb: 1, isFirstRk: 1 },
+    ];
+    d.extras = [{ districtId: 1, levelId: 7, achievedAt: "2023-01-01" }];
+    const spb = regionalFirstVictors(d, 7).find((row) => row.region === "spb")!;
+    expect(spb.manual).toBe(true);
+    expect(spb.firstDate).toBe("2025-01-01");
+    expect(spb.victors.map((victor) => victor.playerId)).toEqual([3]);
+    expect(spb.victors[0]?.isFirstRk).toBe(true);
+    d.records[1]!.isFirstSpb = 0;
+    expect(
+      regionalFirstVictors(d, 7).find((row) => row.region === "spb")?.manual,
+    ).toBe(false);
+  });
+  it("выводит отмеченного первого без даты и не подставляет дату другого игрока", () => {
+    const d = data();
+    d.records = [
+      record(1, "2024-01-01"),
+      { ...record(3, null), isFirstSpb: 1 },
+    ];
+    const spb = regionalFirstVictors(d, 7).find((row) => row.region === "spb")!;
+    expect(spb.firstDate).toBeNull();
+    expect(spb.victors.map((victor) => victor.playerId)).toEqual([3]);
+  });
+  it("не переносит ручную отметку первого на чужой регион", () => {
+    const d = data();
+    d.records = [
+      record(1, "2024-01-01"),
+      { ...record(2, "2025-01-01"), isFirstSpb: 1 },
+    ];
+    expect(regionalFirstVictors(d, 7).every((row) => !row.manual)).toBe(true);
+    d.records[1]!.isFirstLo = 1;
+    expect(
+      regionalFirstVictors(d, 7).find((row) => row.region === "lo")?.manual,
+    ).toBe(true);
+  });
+  it("игнорирует ручные отметки на прогрессах, отключённых и удалённых прохождениях", () => {
+    for (const ignored of [
+      { ...record(3, "2025-01-01", 95), isFirstSpb: 1 },
+      { ...record(3, "2025-01-01", 100, 0), isFirstSpb: 1 },
+      { ...record(3, "2025-01-01"), isFirstSpb: 1, deletedAt: "2026-10-07" },
+    ]) {
+      const d = data();
+      d.records = [record(1, "2024-01-01"), ignored];
+      const spb = regionalFirstVictors(d, 7).find(
+        (row) => row.region === "spb",
+      )!;
+      expect(spb.manual).toBe(false);
+      expect(spb.victors.map((victor) => victor.playerId)).toEqual([1]);
+    }
+  });
   it("показывает единственного регионального виктора без даты, не выдумывая порядок нескольких", () => {
     const d = data();
     d.records = [record(1, null), record(2, null)];

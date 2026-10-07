@@ -21,6 +21,10 @@ const tierNames = {
   legacy: "Legacy list",
 };
 
+export function withoutHistoryQuotes(text: string) {
+  return text.replace(/[«»“”„"]/g, "");
+}
+
 function primaryNote(movement: LevelMovement) {
   if (movement.toTier === null && movement.fromTier !== null)
     return "Удалён из листа";
@@ -81,12 +85,29 @@ export function storedLevelNote(
     return "";
   const movement = movements.find((item) => item.levelId === levelId);
   if (!movement) return "";
-  if (movement.note) return movement.note;
+  if (movement.toTier === "legacy") {
+    const entrants = movements.filter(
+      (item) =>
+        item.levelId !== levelId &&
+        item.fromRank === null &&
+        item.toRank !== null,
+    );
+    if (
+      entrants.length === 1 &&
+      (!movement.note || movement.note === "Подвинут")
+    ) {
+      const reason = causedBy(movement, entrants[0]!);
+      if (reason) return withoutHistoryQuotes(reason);
+    }
+  }
+  if (movement.note) return withoutHistoryQuotes(movement.note);
   const primary = movements.find((item) => item.levelId === primaryId);
   if (!primary) return "";
-  return movement === primary
-    ? primaryNote(movement)
-    : (causedBy(movement, primary) ?? "");
+  return withoutHistoryQuotes(
+    movement === primary
+      ? primaryNote(movement)
+      : (causedBy(movement, primary) ?? ""),
+  );
 }
 
 function movedLevels(before: Level[], after: Level[]) {
@@ -173,50 +194,77 @@ export function describeListChanges(before: Level[], after: Level[]) {
       after.find((level) => level.id === movement.levelId)!.listExcluded,
   );
   for (const movement of movements) {
+    const reasons = primary
+      .filter((cause) => cause !== movement)
+      .map((cause) => causedBy(movement, cause))
+      .filter(Boolean)
+      .join("; ");
+    if (movement.toTier === "legacy" && reasons) {
+      movement.note = withoutHistoryQuotes(reasons);
+      continue;
+    }
     if (primary.includes(movement)) {
       movement.note = primaryNote(movement);
       continue;
     }
-    movement.note = primary
-      .map((cause) => causedBy(movement, cause))
-      .filter(Boolean)
-      .join("; ");
+    movement.note = withoutHistoryQuotes(reasons);
   }
   const neighbors = (rank: number | null) => {
     if (rank === null) return "";
     const lower = current[rank]?.name;
     const higher = current[rank - 2]?.name;
-    return `${lower ? ` выше «${lower}»` : ""}${higher ? `${lower ? " и" : ""} ниже «${higher}»` : ""}`;
+    return `${lower ? ` выше ${lower}` : ""}${higher ? `${lower ? " и" : ""} ниже ${higher}` : ""}`;
   };
-  const descriptions = primary.slice(0, 5).map((movement) => {
-    if (movement.toRank === null)
-      return movement.toTier === "legacy"
-        ? `«${movement.name}» подвинут с ${movement.fromRank} места в Legacy list`
-        : `«${movement.name}» удалён из листа`;
-    if (movement.fromTier === "legacy")
-      return `«${movement.name}» подвинут из Legacy list на ${movement.toRank} место${neighbors(movement.toRank)}`;
-    if (movement.fromRank === null)
-      return `«${movement.name}» поставлен в топ на ${movement.toRank} место${neighbors(movement.toRank)}`;
-    return `«${movement.name}» был ${movement.toRank < movement.fromRank ? "повышен" : "понижен"} с ${movement.fromRank} на ${movement.toRank} место${neighbors(movement.toRank)}`;
-  });
-  if (primary.length > 5)
-    descriptions.push(`и ещё ${primary.length - 5} изменений порядка`);
-  const transitions = movements.filter(
-    (movement) =>
-      movement.fromTier &&
-      movement.toTier &&
-      movement.fromTier !== movement.toTier &&
-      movement.fromTier !== "legacy" &&
-      !primary.some((item) => item.levelId === movement.levelId),
-  );
-  if (transitions.length)
-    descriptions.push(
-      `${descriptions.length ? "В связи с этим " : ""}${transitions.map((movement) => `«${movement.name}» ${movement.toTier === "legacy" ? "подвинут в" : "переходит в"} ${tierNames[movement.toTier!]}`).join(", ")}`,
+  const legacyDescription = (movement: LevelMovement) => {
+    const reason =
+      movement.note && movement.note !== "Подвинут"
+        ? `. ${movement.note}`
+        : "";
+    return `${movement.name} вылетел в Legacy list с ${movement.fromRank} места${reason}`;
+  };
+  const transitions = movements
+    .filter(
+      (movement) =>
+        movement.fromTier &&
+        movement.toTier &&
+        movement.fromTier !== movement.toTier,
+    )
+    .sort(
+      (a, b) =>
+        Number(!(a.fromTier === "main" && a.toTier === "extended")) -
+          Number(!(b.fromTier === "main" && b.toTier === "extended")) ||
+        (a.toRank ?? Infinity) - (b.toRank ?? Infinity),
     );
+  const descriptions = transitions.map((movement) => {
+    if (movement.toTier === "legacy")
+      return legacyDescription(movement);
+    const returned =
+      movement.fromTier === "legacy" ||
+      (movement.fromTier === "extended" && movement.toTier === "main");
+    return `${movement.name} ${returned ? "вернулся в" : "вылетел из Main list в"} ${tierNames[movement.toTier!]} на ${movement.toRank} место${movement.fromRank !== null ? ` (был на ${movement.fromRank} месте)` : ""}${primary.includes(movement) ? neighbors(movement.toRank) : ""}`;
+  });
+  const ordinary = primary.filter(
+    (movement) => !transitions.includes(movement),
+  );
+  descriptions.push(
+    ...ordinary.slice(0, 5).map((movement) => {
+      if (movement.toRank === null)
+        return movement.toTier === "legacy"
+          ? legacyDescription(movement)
+          : `${movement.name} удалён из листа`;
+      if (movement.fromTier === "legacy")
+        return `${movement.name} вернулся в ${tierNames[movement.toTier!]} на ${movement.toRank} место${neighbors(movement.toRank)}`;
+      if (movement.fromRank === null)
+        return `${movement.name} поставлен в топ на ${movement.toRank} место${neighbors(movement.toRank)}`;
+      return `${movement.name} был ${movement.toRank < movement.fromRank ? "повышен" : "понижен"} с ${movement.fromRank} на ${movement.toRank} место${neighbors(movement.toRank)}`;
+    }),
+  );
+  if (ordinary.length > 5)
+    descriptions.push(`и ещё ${ordinary.length - 5} изменений порядка`);
   if (!descriptions.length)
     descriptions.push("Обновлён порядок уровней в листе");
   return {
-    title: descriptions.join(". "),
+    title: withoutHistoryQuotes(descriptions.join(". ")),
     movements,
     entityId: primary.length === 1 ? primary[0]!.levelId : null,
   };

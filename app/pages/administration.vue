@@ -1,5 +1,6 @@
 <script setup lang="ts">
 const { data, error, refresh } = await useFetch("/api/administration");
+const profileLink = resolveComponent("NuxtLink");
 useHead({ title: "Администрация · СПб Demonlist" });
 </script>
 <template>
@@ -10,12 +11,16 @@ useHead({ title: "Администрация · СПб Demonlist" });
     </p>
     <div class="staff">
       <component
-        :is="member.playerId ? resolveComponent('NuxtLink') : 'div'"
+        :is="member.playerId ? profileLink : 'div'"
         v-for="member in data"
         :key="member.id"
         :to="member.playerId ? `/players/${member.playerId}` : undefined"
         class="panel member"
-        ><UserAvatar :name="member.name" :url="member.avatar" />
+        ><UserAvatar
+          class="staff-avatar"
+          :name="member.name"
+          :url="member.avatar"
+        />
         <div>
           <strong>{{ member.name }}</strong
           ><span>{{
@@ -46,5 +51,12 @@ useHead({ title: "Администрация · СПб Demonlist" });
   strong {
     overflow-wrap: anywhere;
   }
+  > div {
+    min-width: 0;
+  }
+}
+.member .staff-avatar {
+  width: 57.6px;
+  height: 57.6px;
 }
 </style>

@@ -12,6 +12,7 @@ export function migrateAccountSecurity(connection: Database.Database) {
     for (const [name, definition] of Object.entries({
       sessionKey: "TEXT NOT NULL DEFAULT ''",
       avatarLocked: "INTEGER NOT NULL DEFAULT 0",
+      passwordResetRequired: "INTEGER NOT NULL DEFAULT 0",
     })) {
       if (!columns.has(name))
         connection.exec(

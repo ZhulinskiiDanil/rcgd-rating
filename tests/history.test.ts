@@ -31,6 +31,9 @@ beforeEach(() => {
   db().exec(
     "DELETE FROM levelHistory; DELETE FROM ratingHistory; DELETE FROM changes; DELETE FROM records; DELETE FROM districtExtras; DELETE FROM players; DELETE FROM levels;",
   );
+  db().prepare("DELETE FROM settings WHERE key='mikaGlobalCutoff'").run();
+  const seed = db().prepare("INSERT INTO levels(id,gdlId,name) VALUES(?,?,?)");
+  for (const level of globals) seed.run(level.id, level.id, level.name);
   applyGlobal(globals, null);
   mutate("Seed", null, () =>
     db().prepare("UPDATE levels SET verifiedLocal=1").run(),
@@ -91,6 +94,51 @@ describe("Причины перестановок уровней", () => {
     expect(
       one<any>("SELECT fromRank,toRank FROM levelHistory WHERE levelId=75"),
     ).toEqual({ fromRank: 75, toRank: 76 });
+    expect(
+      one<{ note: string }>("SELECT note FROM levelHistory WHERE levelId=150")
+        ?.note,
+    ).toBe("New level поставлен выше этого уровня");
+    expect(publicEvents("level")[0]?.title).toMatch(
+      /^Level 75 вылетел из Main list в Extended list/,
+    );
+    expect(publicEvents("level")[0]?.title).toContain(
+      "Level 150 вылетел в Legacy list с 150 места. New level поставлен выше этого уровня",
+    );
+    expect(publicEvents("level")[0]?.title).not.toMatch(/[«»"]/);
+  });
+  it("явно сообщает о возвращении из Extended в Main до остальных изменений", () => {
+    mutate("Return to main", null, () =>
+      db().prepare("UPDATE levels SET globalRank=74.5 WHERE id=76").run(),
+    );
+    const title = publicEvents("level")[0]?.title;
+    expect(title).toMatch(/^Level 75 вылетел из Main list в Extended list/);
+    expect(title).toContain("Level 76 вернулся в Main list на 75 место");
+    expect(title?.match(/Level 76 вернулся/g)).toHaveLength(1);
+  });
+  it("восстанавливает причину старого вылета в Legacy вместо общего Подвинут", () => {
+    const movements = [
+      {
+        levelId: 200,
+        name: "New level",
+        fromRank: null,
+        toRank: 13,
+        fromTier: null,
+        toTier: "main",
+        note: "Добавлен в лист",
+      },
+      {
+        levelId: 150,
+        name: "Level 150",
+        fromRank: 150,
+        toRank: null,
+        fromTier: "extended",
+        toTier: "legacy",
+        note: "Подвинут",
+      },
+    ];
+    expect(storedLevelNote(150, null, JSON.stringify({ movements }))).toBe(
+      "New level поставлен выше этого уровня",
+    );
   });
   it("13 → 75 помечает сам уровень как подвинутый и объясняет сдвиги соседей", () => {
     mutate("Move down", null, () =>
@@ -135,8 +183,9 @@ describe("Причины перестановок уровней", () => {
     ).toEqual({ manualPercent: 100, deletedAt: null });
     expect(publicEvents("level")).toHaveLength(1);
     expect(publicEvents("level")[0]?.title).toContain(
-      "Level 127» подвинут с 127 места в Legacy list",
+      "Level 127 вылетел в Legacy list с 127 места",
     );
+    expect(publicEvents("level")[0]?.title).not.toContain(". Подвинут");
     expect(
       one<{ note: string }>("SELECT note FROM levelHistory WHERE levelId=128")
         ?.note,
@@ -148,7 +197,7 @@ describe("Причины перестановок уровней", () => {
     const events = publicEvents("level");
     expect(events).toHaveLength(1);
     expect(events[0]?.title.match(/Level 127/g)).toHaveLength(1);
-    expect(events[0]?.title).not.toContain("возвращается");
+    expect(events[0]?.title).toContain("Level 127 вернулся в Extended list");
     expect(all("SELECT * FROM levelHistory WHERE levelId=127")).toHaveLength(1);
     expect(one<any>("SELECT status,exitedAt FROM levels WHERE id=127")).toEqual(
       { status: "extended", exitedAt: null },

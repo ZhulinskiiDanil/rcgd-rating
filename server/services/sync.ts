@@ -43,6 +43,39 @@ const sheetAliases: Record<string, number> = { "fever dream": 1652 };
 const safeVideo = (value?: string | null) =>
   value && /^https?:\/\//i.test(value) ? value : "";
 
+function globalCutoff(levels: GlobalLevel[], stored: Level[]): number | null {
+  return (
+    levels.find(
+      (level) =>
+        normalizedName(level.name) === "mika" && level.placement !== null,
+    )?.placement ??
+    stored.find(
+      (level) =>
+        normalizedName(level.name) === "mika" && level.globalRank !== null,
+    )?.globalRank ??
+    (Number(
+      one<{ value: string }>(
+        "SELECT value FROM settings WHERE key='mikaGlobalCutoff'",
+      )?.value,
+    ) ||
+      null)
+  );
+}
+
+function permittedGlobalLevels(
+  levels: GlobalLevel[],
+  stored: Level[],
+  cutoff: number | null,
+): GlobalLevel[] {
+  const existing = new Set(stored.map((level) => level.gdlId));
+  return levels.filter(
+    (level) =>
+      existing.has(level.id) ||
+      cutoff === null ||
+      (level.placement !== null && level.placement <= cutoff),
+  );
+}
+
 export function preserveImportedRecordsOnRebind(
   playerId: number,
   previousGdlId: number | null,
@@ -71,12 +104,16 @@ export function preserveImportedRecordsOnRebind(
   }
 }
 
-function findSheetLevel(raw: string, levels: Level[]) {
+function sheetLevelName(raw: string) {
   const spelling: Record<string, string> = {
     "Knight of Thunder": "Knights of Thunder",
     EXPLICT: "EXPLICIT",
   };
-  const name = spelling[raw] || raw;
+  return spelling[raw] || raw;
+}
+
+function findSheetLevel(raw: string, levels: Level[]) {
+  const name = sheetLevelName(raw);
   let matches = levels.filter(
     (l) => l.gdlId !== null && normalizedName(l.name) === normalizedName(name),
   );
@@ -122,9 +159,12 @@ export function importAchievements(
       const region = /\(ЛО\)/i.test(entry.name) ? "lo" : "spb";
       const name = entry.name.replace(/\s*район(?:\s*\(ЛО\))?$/i, "").trim();
       const districtName =
-        region === "lo" && ["Гатчинский", "Сосновоборский"].includes(name)
-          ? `${name} городской округ`
-          : name;
+        region === "lo" &&
+        ["Гатчинский", "Гатчинский городской округ"].includes(name)
+          ? "Гатчинский муниципальный округ"
+          : region === "lo" && name === "Сосновоборский"
+            ? "Сосновоборский городской округ"
+            : name;
       const district = one<District>(
         "SELECT * FROM districts WHERE name=? AND region=?",
         districtName,
@@ -191,6 +231,8 @@ export function applyGlobal(
   levels: GlobalLevel[],
   thresholds: Threshold[] | null,
 ) {
+  const stored = all<Level>("SELECT * FROM levels");
+  const cutoff = globalCutoff(levels, stored);
   const existing = new Map(
     all<Level>("SELECT * FROM levels WHERE gdlId IS NOT NULL").map((l) => [
       l.gdlId,
@@ -252,7 +294,7 @@ export function applyGlobal(
   const upsert = db().prepare(
     `INSERT INTO levels(gdlId,name,globalRank,creator,video,ingameId,length,gameVersion) VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(gdlId) DO UPDATE SET name=excluded.name,globalRank=excluded.globalRank,creator=excluded.creator,video=excluded.video,ingameId=excluded.ingameId,length=COALESCE(excluded.length,levels.length),gameVersion=CASE WHEN levels.gameVersion='' THEN excluded.gameVersion ELSE levels.gameVersion END`,
   );
-  for (const l of levels)
+  for (const l of permittedGlobalLevels(levels, [...existing.values()], cutoff))
     upsert.run(
       l.id,
       l.name,
@@ -263,6 +305,12 @@ export function applyGlobal(
       l.length ?? null,
       l.game_version == null ? "" : String(l.game_version),
     );
+  if (cutoff !== null)
+    db()
+      .prepare(
+        "INSERT OR REPLACE INTO settings(key,value) VALUES('mikaGlobalCutoff',?)",
+      )
+      .run(String(cutoff));
   for (const old of existing.values())
     if (!incoming.has(old.gdlId!))
       db().prepare("UPDATE levels SET globalRank=NULL WHERE id=?").run(old.id);
@@ -412,8 +460,19 @@ export function mergeRecords(playerId: number, incoming: GlobalRecord[]) {
     }
 }
 
-export function importSheet(names: string[]) {
+export function importSheet(names: string[], incoming: GlobalLevel[] = []) {
   const levels = all<Level>("SELECT * FROM levels");
+  const cutoff = globalCutoff(incoming, levels);
+  const excludedNames = new Set(
+    incoming
+      .filter(
+        (level) =>
+          cutoff !== null &&
+          level.placement !== null &&
+          level.placement > cutoff,
+      )
+      .map((level) => normalizedName(level.name)),
+  );
   const missing: string[] = [];
   for (const raw of names) {
     const match = findSheetLevel(raw, levels);
@@ -421,7 +480,10 @@ export function importSheet(names: string[]) {
       db()
         .prepare("UPDATE levels SET verifiedLocal=1 WHERE id=?")
         .run(match.id);
-    else if (!match) {
+    else if (
+      !match &&
+      !excludedNames.has(normalizedName(sheetLevelName(raw)))
+    ) {
       missing.push(raw);
       db()
         .prepare("INSERT INTO levels(name,verifiedLocal) VALUES (?,1)")
@@ -473,13 +535,14 @@ export async function synchronize(actorId: number | null = null) {
     const versionCursor = one<{ value: string }>(
       "SELECT value FROM settings WHERE key='gameVersionCursor'",
     );
+    const stored = all<Level>("SELECT * FROM levels");
     const {
       batch: versionBatch,
       nextCursor,
       missingCount,
     } = gameVersionBatch(
-      levels,
-      all<Level>("SELECT * FROM levels"),
+      permittedGlobalLevels(levels, stored, globalCutoff(levels, stored)),
+      stored,
       Number(versionCursor?.value) || null,
     );
     let versionIndex = 0;
@@ -578,7 +641,7 @@ export async function synchronize(actorId: number | null = null) {
     const summary = mutate("Синхронизация источников", actorId, () => {
       applyGlobal(levels, thresholds);
       if (names) {
-        const missing = importSheet(names);
+        const missing = importSheet(names, levels);
         if (missing.length)
           warnings.push(`Не сопоставлены: ${missing.join(", ")}`);
       }

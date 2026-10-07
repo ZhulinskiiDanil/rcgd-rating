@@ -8,6 +8,7 @@ const { data, error, refresh } = await useFetch<
     fromTier: string | null;
     toTier: string | null;
     createdAt: string;
+    updatedAt: string | null;
     note: string;
   }[]
 >("/api/history", { query: { type: "levels", id: props.levelId } });
@@ -62,6 +63,11 @@ function movement(from: number | null, to: number | null) {
             </td>
             <td>
               {{ event.note || "—" }}
+              <HistoryEventEditor
+                type="levels"
+                :event="event"
+                @saved="refresh()"
+              />
             </td>
             <td>{{ movement(event.fromRank, event.toRank) || "—" }}</td>
           </tr>

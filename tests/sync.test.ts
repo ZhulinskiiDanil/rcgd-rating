@@ -11,6 +11,7 @@ const {
   applyGlobal,
   mergeRecords,
   importSheet,
+  synchronize,
   preserveImportedRecordsOnRebind,
 } = await import("../server/services/sync");
 const { mutate } = await import("../server/services/changes");
@@ -35,9 +36,146 @@ beforeEach(() => {
   db().exec(
     "DELETE FROM ratingHistory; DELETE FROM changes; DELETE FROM districtExtras; DELETE FROM records; DELETE FROM players; DELETE FROM levels;",
   );
+  db().prepare("DELETE FROM settings WHERE key='mikaGlobalCutoff'").run();
+  if (one("SELECT name FROM sqlite_master WHERE name='sqlite_sequence'"))
+    db().exec(
+      "DELETE FROM sqlite_sequence WHERE name IN ('levels','records','districtExtras')",
+    );
   applyGlobal(levels, null);
 });
 describe("Источники и сохранение данных", () => {
+  it("не воссоздаёт каталог ниже Mika и сохраняет ранее известный уровень при будущем выпадении", () => {
+    db().exec("DELETE FROM levels");
+    const first = [
+      { id: 500, name: "Future drop", placement: 90 },
+      { id: 501, name: "Mika", placement: 100 },
+      { id: 502, name: "Below Mika", placement: 101 },
+    ];
+    applyGlobal(first, null);
+    expect(
+      all<any>("SELECT gdlId FROM levels ORDER BY gdlId").map(
+        (level) => level.gdlId,
+      ),
+    ).toEqual([500, 501]);
+    const future = one<any>("SELECT * FROM levels WHERE gdlId=500");
+    db().prepare("INSERT INTO players(id,name) VALUES(1,'Player')").run();
+    db()
+      .prepare(
+        "INSERT INTO records(playerId,levelId,manualPercent,manualVideo,achievedAt,dateSource) VALUES(1,?,100,'manual-video','2026-09-01','manual')",
+      )
+      .run(future.id);
+    mutate("Initial list", null, () => {});
+    expect(
+      one<any>("SELECT status FROM levels WHERE id=?", future.id)?.status,
+    ).toBe("main");
+    const record = one<any>("SELECT * FROM records WHERE levelId=?", future.id);
+    mutate("Future drop", null, () =>
+      applyGlobal(
+        first.map((level) =>
+          level.id === 500 ? { ...level, placement: 102 } : level,
+        ),
+        null,
+      ),
+    );
+    expect(
+      one<any>("SELECT * FROM levels WHERE id=?", future.id),
+    ).toMatchObject({
+      gdlId: 500,
+      status: "legacy",
+      globalRank: 102,
+      exitedAt: expect.any(String),
+    });
+    expect(
+      one<any>("SELECT * FROM records WHERE levelId=?", future.id),
+    ).toEqual(record);
+    expect(one("SELECT id FROM levels WHERE gdlId=502")).toBeUndefined();
+  });
+
+  it("использует сохранённую границу, если Mika временно отсутствует в снимке", () => {
+    db().exec("DELETE FROM levels");
+    db()
+      .prepare(
+        "INSERT INTO settings(key,value) VALUES('mikaGlobalCutoff','100')",
+      )
+      .run();
+    applyGlobal(
+      [
+        { id: 900, name: "Allowed", placement: 99 },
+        { id: 901, name: "Below Mika", placement: 101 },
+      ],
+      null,
+    );
+    expect(
+      all<any>("SELECT gdlId FROM levels").map((level) => level.gdlId),
+    ).toEqual([900]);
+  });
+
+  it("импорт таблицы не возвращает уровни ниже Mika как ручные, включая исправления названий", () => {
+    db().exec("DELETE FROM levels");
+    const incoming = [
+      { id: 500, name: "Mika", placement: 100 },
+      { id: 501, name: "Knights of Thunder", placement: 101 },
+      { id: 502, name: "Below Mika", placement: 102 },
+    ];
+    applyGlobal(incoming, null);
+    expect(
+      importSheet(
+        ["Mika", "Knight of Thunder", "Below Mika", "Custom level"],
+        incoming,
+      ),
+    ).toEqual(["Custom level"]);
+    expect(
+      all<any>("SELECT name FROM levels ORDER BY id").map(
+        (level) => level.name,
+      ),
+    ).toEqual(["Mika", "Custom level"]);
+  });
+
+  it("не тратит очередь версий на удалённый каталог ниже Mika", async () => {
+    db().exec("DELETE FROM levels");
+    for (const key of [
+      "sheetImported",
+      "playersSheetImported",
+      "districtsSheetImported",
+    ])
+      db()
+        .prepare("INSERT OR REPLACE INTO settings(key,value) VALUES(?, 'test')")
+        .run(key);
+    const incoming = levels.map((level) =>
+      level.placement === 100 ? { ...level, name: "Mika" } : level,
+    );
+    const versionRequests: number[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string) => {
+        const url = new URL(input);
+        if (url.pathname === "/level/classic/list")
+          return Response.json({
+            message: "success",
+            data: {
+              levels: Number(url.searchParams.get("offset")) ? [] : incoming,
+            },
+          });
+        if (url.pathname === "/level/classic/get") {
+          const id = Number(url.searchParams.get("id"));
+          versionRequests.push(id);
+          return Response.json({
+            message: "success",
+            data: { id, game_version: "2.2" },
+          });
+        }
+        return new Response("Unavailable in test", { status: 503 });
+      }),
+    );
+    await synchronize();
+    expect(versionRequests).toHaveLength(100);
+    expect(Math.max(...versionRequests)).toBe(100);
+    expect(one<any>("SELECT count(*) AS count FROM levels")?.count).toBe(100);
+    expect(
+      one<any>("SELECT gameVersion FROM levels WHERE gdlId=100")?.gameVersion,
+    ).toBe("2.2");
+  });
+
   it("загружает версию из деталей глобала и сохраняет уже заполненное значение", async () => {
     const fetcher = vi.fn(
       async (_url: string) =>

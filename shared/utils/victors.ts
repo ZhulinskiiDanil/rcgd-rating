@@ -15,7 +15,9 @@ type CompletionRecord = Pick<
   | "importedPercent"
   | "achievedAt"
 > &
-  Partial<Pick<RecordEntry, "deletedAt">>;
+  Partial<
+    Pick<RecordEntry, "deletedAt" | "isFirstRk" | "isFirstSpb" | "isFirstLo">
+  >;
 export interface VictorData {
   players: (Pick<Player, "id" | "name" | "districtId"> &
     Partial<Pick<Player, "deletedAt">>)[];
@@ -30,6 +32,9 @@ export interface Victor {
   achievedAt: string | null;
   districtId: number | null;
   region: District["region"] | null;
+  isFirstRk: boolean;
+  isFirstSpb: boolean;
+  isFirstLo: boolean;
 }
 export interface RegionalFirstVictor {
   region: District["region"];
@@ -38,6 +43,7 @@ export interface RegionalFirstVictor {
   victors: Victor[];
   hasUndated: boolean;
   hasCompletions: boolean;
+  manual: boolean;
 }
 export interface FirstLevelVictor {
   firstDate: string | null;
@@ -102,12 +108,19 @@ export function levelVictors(
     if (
       previous &&
       compareCompletionDates(previous.achievedAt, achievedAt) <= 0
-    )
+    ) {
+      previous.isFirstRk ||= !!record.isFirstRk;
+      previous.isFirstSpb ||= !!record.isFirstSpb;
+      previous.isFirstLo ||= !!record.isFirstLo;
       continue;
+    }
     victors.set(player.id, {
       playerId: player.id,
       name: player.name,
       achievedAt,
+      isFirstRk: !!record.isFirstRk || !!previous?.isFirstRk,
+      isFirstSpb: !!record.isFirstSpb || !!previous?.isFirstSpb,
+      isFirstLo: !!record.isFirstLo || !!previous?.isFirstLo,
       districtId: player.districtId,
       region:
         player.districtId === null
@@ -146,19 +159,29 @@ export function regionalFirstVictors(
         ...victors.map((victor) => victor.achievedAt),
         ...extraDates,
       ];
+      const marked = victors.filter((victor) =>
+        region === "spb" ? victor.isFirstSpb : victor.isFirstLo,
+      );
+      const firstDates = marked.length
+        ? marked.map((victor) => victor.achievedAt)
+        : dates;
       const firstDate =
-        dates.filter((date): date is string => date !== null).sort()[0] ?? null;
+        firstDates.filter((date): date is string => date !== null).sort()[0] ??
+        null;
       return {
         region,
         label: region === "spb" ? "Санкт-Петербург" : "Ленинградская область",
         firstDate,
-        victors: firstDate
-          ? victors.filter((victor) => victor.achievedAt === firstDate)
-          : victors.length === 1
-            ? victors
-            : [],
+        victors: marked.length
+          ? marked
+          : firstDate
+            ? victors.filter((victor) => victor.achievedAt === firstDate)
+            : victors.length === 1
+              ? victors
+              : [],
         hasUndated: dates.includes(null),
         hasCompletions: dates.length > 0,
+        manual: marked.length > 0,
       };
     })
     .sort((a, b) => compareCompletionDates(a.firstDate, b.firstDate));

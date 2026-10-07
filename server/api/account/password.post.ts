@@ -15,7 +15,7 @@ export default defineEventHandler(async (event) => {
       login: z.string().trim().min(1).max(64).optional(),
     }).parse,
   );
-  const user = await requireAccount(event);
+  const user = await requireAccount(event, true);
   const session = await getUserSession(event);
   const key = changeOwnPassword(
     user.id,

@@ -4,6 +4,9 @@ import { dirname } from "node:path";
 import { resolveDatabasePath } from "./path";
 import { migrateCommunity } from "./community";
 import { migrateAccountSecurity } from "./account-security";
+import { migrateRegionalVictors } from "./regional-victors";
+import { migrateHistoryEditing } from "./history-editing";
+import { migrateMikaPurge } from "./mika-purge";
 import {
   migrateMedia,
   migrateRecordDates,
@@ -60,6 +63,9 @@ export function db() {
     migrateListControls(connection);
     migrateCommunity(connection);
     migrateAccountSecurity(connection);
+    migrateRegionalVictors(connection);
+    migrateHistoryEditing(connection);
+    migrateMikaPurge(connection);
     const cities = [
       "Адмиралтейский",
       "Василеостровский",
@@ -86,7 +92,7 @@ export function db() {
       "Волховский",
       "Всеволожский",
       "Выборгский",
-      "Гатчинский городской округ",
+      "Гатчинский муниципальный округ",
       "Кингисеппский",
       "Киришский",
       "Кировский",

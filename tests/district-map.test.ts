@@ -36,13 +36,13 @@ const rings = (path: string) =>
     );
 
 describe("district map geographic data", () => {
-  it("retains full names for urban okrugs", () => {
+  it("retains full names for municipal and urban okrugs", () => {
     expect(
       map.features.find(
         (feature) =>
           feature.region === "lo" && feature.name.startsWith("Гатчинский"),
       )?.name,
-    ).toBe("Гатчинский городской округ");
+    ).toBe("Гатчинский муниципальный округ");
     expect(
       map.features.find(
         (feature) =>
@@ -78,7 +78,7 @@ describe("district map geographic data", () => {
     expect(at(29.13, 60.02)).toHaveLength(0);
     expect(
       at(30.13, 59.57).some(
-        (feature) => feature.name === "Гатчинский городской округ",
+        (feature) => feature.name === "Гатчинский муниципальный округ",
       ),
     ).toBe(true);
     expect(

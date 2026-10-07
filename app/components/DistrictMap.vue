@@ -1,7 +1,12 @@
 <script setup lang="ts">
 import type { RankedDistrict } from "#shared/types/domain";
+import {
+  DISTRICT_MAP_MAX_ZOOM,
+  useDistrictMapViewport,
+  type MapBounds,
+} from "../composables/useDistrictMapViewport";
 
-type Bounds = [number, number, number, number];
+type Bounds = MapBounds;
 interface MapFeature {
   osmId: number;
   name: string;
@@ -16,19 +21,24 @@ interface MapData {
   timestamp: string;
   features: MapFeature[];
 }
-const props = defineProps<{ districts: RankedDistrict[] }>();
+const props = defineProps<{
+  districts: RankedDistrict[];
+  focusDistrictId?: number;
+}>();
 const emit = defineEmits<{ select: [districtId: number] }>();
+const selectId = useId();
 const { data, error, refresh } = await useFetch<MapData>(
   "/geo/districts.json",
   {
-    key: "district-geometry",
+    key: `district-geometry-shoreline-${selectId}`,
+    cache: "no-store",
+    getCachedData: (key, nuxtApp) =>
+      nuxtApp.isHydrating ? nuxtApp.payload.data[key] : undefined,
   },
 );
 const svg = ref<SVGSVGElement | null>(null);
-const selectId = useId();
 const selectedId = ref<number | null>(null);
 const hoveredId = ref<number | null>(null);
-const view = ref<Bounds>(data.value?.viewBox ?? [0, 0, 1000, 645]);
 const dragging = ref(false);
 let pointer: {
   id: number;
@@ -57,6 +67,24 @@ const mapped = computed(() =>
     ),
   })),
 );
+const focusedFeature = computed(() =>
+  props.focusDistrictId === undefined
+    ? undefined
+    : mapped.value.find(
+        (feature) => feature.district?.id === props.focusDistrictId,
+      ),
+);
+const { view, setView, fit, reset } = useDistrictMapViewport(
+  computed(() => data.value?.viewBox),
+  computed(() => focusedFeature.value?.bounds),
+);
+watch(
+  focusedFeature,
+  (feature) => {
+    if (feature) selectedId.value = feature.osmId;
+  },
+  { immediate: true },
+);
 const selected = computed(() =>
   mapped.value.find((feature) => feature.osmId === selectedId.value),
 );
@@ -81,23 +109,14 @@ const score = (value: number) =>
     maximumFractionDigits: 2,
   });
 
-function setView(next: Bounds) {
-  const full = data.value?.viewBox;
-  if (!full) return;
-  const width = Math.min(full[2], Math.max(full[2] / 24, next[2]));
-  const height = (width * full[3]) / full[2];
-  view.value = [
-    Math.max(full[0], Math.min(full[0] + full[2] - width, next[0])),
-    Math.max(full[1], Math.min(full[1] + full[3] - height, next[1])),
-    width,
-    height,
-  ];
-}
 function zoomAt(factor: number) {
   const [x, y, width, height] = view.value;
   const nextWidth = Math.min(
     data.value?.viewBox[2] ?? 1000,
-    Math.max((data.value?.viewBox[2] ?? 1000) / 24, width / factor),
+    Math.max(
+      (data.value?.viewBox[2] ?? 1000) / DISTRICT_MAP_MAX_ZOOM,
+      width / factor,
+    ),
   );
   const ratio = nextWidth / width;
   setView([
@@ -106,24 +125,6 @@ function zoomAt(factor: number) {
     nextWidth,
     height * ratio,
   ]);
-}
-function fit(bounds?: Bounds) {
-  if (!bounds || !data.value) return;
-  const [x, y, width, height] = bounds;
-  const targetWidth =
-    Math.max(width, (height * data.value.viewBox[2]) / data.value.viewBox[3]) *
-    1.18;
-  const targetHeight =
-    (targetWidth * data.value.viewBox[3]) / data.value.viewBox[2];
-  setView([
-    x + width / 2 - targetWidth / 2,
-    y + height / 2 - targetHeight / 2,
-    targetWidth,
-    targetHeight,
-  ]);
-}
-function reset() {
-  if (data.value) view.value = [...data.value.viewBox];
 }
 function choose(id: number | null, focus = false) {
   selectedId.value = id;
@@ -254,7 +255,7 @@ function keyboard(event: KeyboardEvent) {
             ><button
               type="button"
               aria-label="Увеличить масштаб карты"
-              :disabled="zoom >= 24"
+              :disabled="zoom >= DISTRICT_MAP_MAX_ZOOM"
               @click="zoomAt(1.4)"
             >
               +

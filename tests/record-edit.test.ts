@@ -12,6 +12,7 @@ import {
 } from "vitest";
 import type { RecordEntry } from "../shared/types/domain";
 import { recordEditFields } from "../server/services/record-edit";
+import { migrateRegionalVictors } from "../server/database/regional-victors";
 
 process.env.DATABASE_PATH = join(
   mkdtempSync(join(tmpdir(), "spb-record-edit-")),
@@ -46,6 +47,7 @@ function edit(overrides: Record<string, unknown> = {}) {
 }
 
 beforeEach(() => {
+  migrateRegionalVictors(db());
   vi.stubGlobal("getRouterParam", () => "records");
   vi.stubGlobal("requirePermission", async () => ({ id: 1 }));
   vi.stubGlobal("readBody", async (event: { body: unknown }) => event.body);
@@ -66,6 +68,9 @@ beforeEach(() => {
     VALUES(1,1,1,80,100,901,?,?,'2026-09-20','video',?,'2026-09-21')`,
     )
     .run(manualVideo, importedVideo, importedVideo);
+  db().exec(
+    "UPDATE players SET districtId=(SELECT id FROM districts WHERE region='spb' LIMIT 1) WHERE id=1; UPDATE players SET districtId=(SELECT id FROM districts WHERE region='lo' LIMIT 1) WHERE id=2",
+  );
 });
 afterEach(() => {
   vi.restoreAllMocks();
@@ -74,6 +79,64 @@ afterEach(() => {
 afterAll(() => db().close());
 
 describe("record reassignment", () => {
+  it("persists a manual regional mark and keeps it when global sync updates the record", async () => {
+    await handler({
+      body: edit({
+        playerId: 1,
+        levelId: 1,
+        isFirstSpb: true,
+        isFirstRk: true,
+        dateSource: "manual",
+      }),
+    });
+    expect(original()).toMatchObject({
+      isFirstSpb: 1,
+      isFirstLo: 0,
+      isFirstRk: 1,
+    });
+    mergeRecords(1, [
+      {
+        id: 901,
+        level: { id: 11, name: "Original level" },
+        percent: 100,
+        status: "accepted",
+        video_url: importedVideo,
+      },
+    ]);
+    expect(original()).toMatchObject({
+      isFirstSpb: 1,
+      isFirstLo: 0,
+      isFirstRk: 1,
+    });
+  });
+  it("clears the old region mark when moving to another region and accepts that region's own mark", async () => {
+    db().exec("UPDATE records SET isFirstSpb=1 WHERE id=1");
+    await handler({ body: edit({ isFirstSpb: true, dateSource: "manual" }) });
+    expect(original()).toMatchObject({
+      playerId: 2,
+      isFirstSpb: 0,
+      isFirstLo: 0,
+    });
+    await handler({
+      body: edit({ manualPercent: 100, isFirstLo: true, dateSource: "manual" }),
+    });
+    expect(original()).toMatchObject({ isFirstSpb: 0, isFirstLo: 1 });
+  });
+  it("rejects a first-victor mark on a progress record", async () => {
+    await expect(
+      handler({
+        body: edit({
+          playerId: 1,
+          levelId: 1,
+          manualPercent: 95,
+          discardImported: true,
+          isFirstSpb: true,
+          dateSource: "manual",
+        }),
+      }),
+    ).rejects.toMatchObject({ statusCode: 400 });
+    expect(original()).toMatchObject({ isFirstSpb: 0, importedPercent: 100 });
+  });
   it("keeps the winning video and date, and blocks reimport on the original player/level pair", async () => {
     const fetcher = vi.fn();
     vi.stubGlobal("fetch", fetcher);

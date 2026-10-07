@@ -1,4 +1,5 @@
 import { all } from "../database";
+import { withoutHistoryQuotes } from "../services/list-events";
 export default defineEventHandler((event) => {
   const query = getQuery(event);
   if (
@@ -20,10 +21,11 @@ export default defineEventHandler((event) => {
     entityId: number | null;
     title: string;
     createdAt: string;
+    updatedAt: string | null;
   }>(
-    `SELECT id,kind,entityId,CASE WHEN kind IN ('player-rating','district-rating') THEN replace(replace(title,'«',''),'»','') ELSE title END AS title,createdAt FROM changes WHERE public=1 AND kind=? AND title LIKE ? ESCAPE '!' ORDER BY id DESC LIMIT 50 OFFSET ?`,
+    `SELECT id,kind,entityId,title,createdAt,updatedAt FROM changes WHERE public=1 AND deletedAt IS NULL AND kind=? AND title LIKE ? ESCAPE '!' ORDER BY createdAt DESC,id DESC LIMIT 50 OFFSET ?`,
     kind,
     `%${search.replace(/[!%_]/g, "!$&")}%`,
     (page - 1) * 50,
-  );
+  ).map((row) => ({ ...row, title: withoutHistoryQuotes(row.title) }));
 });

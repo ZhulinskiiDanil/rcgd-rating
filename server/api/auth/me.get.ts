@@ -19,6 +19,7 @@ export default defineEventHandler(async (event) => {
     avatar: user.avatarUrl || user.discordAvatar || user.googleAvatar,
     avatarLocked: !!user.avatarLocked,
     hasPassword: !!user.passwordHash,
+    passwordResetRequired: !!user.passwordResetRequired,
     canResetPassword: isRecentOAuthProof(session.secure),
   };
 });

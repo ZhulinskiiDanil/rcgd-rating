@@ -1,5 +1,5 @@
 import { all } from "../database";
-import { storedLevelNote } from "../services/list-events";
+import { storedLevelNote, withoutHistoryQuotes } from "../services/list-events";
 export default defineEventHandler((event) => {
   const { type, id } = getQuery(event);
   if (
@@ -16,14 +16,22 @@ export default defineEventHandler((event) => {
       toTier: string | null;
       createdAt: string;
       note: string;
+      noteEdited: number;
+      updatedAt: string | null;
       primaryId: number | null;
       afterJson: string | null;
     }>(
-      "SELECT h.id,h.fromRank,h.toRank,h.fromTier,h.toTier,h.note,h.createdAt,c.entityId AS primaryId,c.afterJson FROM levelHistory h LEFT JOIN changes c ON c.id=h.changeId AND c.kind='level' WHERE h.levelId=? ORDER BY h.id DESC LIMIT 100",
+      "SELECT h.id,h.fromRank,h.toRank,h.fromTier,h.toTier,h.note,h.noteEdited,h.createdAt,h.updatedAt,c.entityId AS primaryId,c.afterJson FROM levelHistory h LEFT JOIN changes c ON c.id=h.changeId AND c.kind='level' WHERE h.levelId=? AND h.deletedAt IS NULL ORDER BY h.createdAt DESC,h.id DESC LIMIT 100",
       Number(id),
-    ).map(({ primaryId, afterJson, ...row }) => ({
+    ).map(({ primaryId, afterJson, noteEdited, ...row }) => ({
       ...row,
-      note: row.note || storedLevelNote(Number(id), primaryId, afterJson),
+      note: withoutHistoryQuotes(
+        noteEdited
+          ? row.note
+          : !row.note || (row.toTier === "legacy" && row.note === "Подвинут")
+            ? storedLevelNote(Number(id), primaryId, afterJson) || row.note
+            : row.note,
+      ),
     }));
   return all<{
     id: number;

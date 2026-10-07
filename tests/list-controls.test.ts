@@ -21,6 +21,9 @@ beforeEach(() => {
   db().exec(
     "DELETE FROM levelHistory;DELETE FROM ratingHistory;DELETE FROM changes;DELETE FROM districtExtras;DELETE FROM records;DELETE FROM players;DELETE FROM levels;",
   );
+  db().prepare("DELETE FROM settings WHERE key='mikaGlobalCutoff'").run();
+  const seed = db().prepare("INSERT INTO levels(id,gdlId,name) VALUES(?,?,?)");
+  for (const level of globals) seed.run(level.id, level.id, level.name);
   applyGlobal(globals, null);
   mutate("Seed", null, () =>
     db().prepare("UPDATE levels SET verifiedLocal=1").run(),
@@ -57,12 +60,12 @@ describe("Границы листа, удаления и история", () => 
       "SELECT * FROM changes WHERE public=1 AND kind='level'",
     );
     expect(events).toHaveLength(1);
-    expect(events[0].title).toContain(
-      "New hardest» поставлен в топ на 1 место",
+    expect(events[0].title).toContain("New hardest поставлен в топ на 1 место");
+    expect(events[0].title).toMatch(
+      /^Level 75 вылетел из Main list в Extended list/,
     );
-    expect(events[0].title).toContain("Level 75» переходит в Extended list");
     expect(events[0].title).toContain(
-      "Level 150» подвинут с 150 места в Legacy list",
+      "Level 150 вылетел в Legacy list с 150 места",
     );
     expect(all("SELECT * FROM levelHistory")).toHaveLength(151);
     expect(
@@ -80,8 +83,10 @@ describe("Границы листа, удаления и история", () => 
       "SELECT title FROM changes WHERE public=1 AND kind='level'",
     );
     expect(events).toHaveLength(1);
-    expect(events[0].title).toContain("Level 1» был понижен с 1 на 149 место");
-    expect(events[0].title).not.toContain("Level 2» был повышен");
+    expect(events[0].title).toContain(
+      "Level 1 вылетел из Main list в Extended list на 149 место (был на 1 месте)",
+    );
+    expect(events[0].title).not.toContain("Level 2 был повышен");
   });
   it("удалённый из листа уровень не становится Legacy и не возвращается после global sync", () => {
     mutate("Remove", null, () =>

@@ -181,7 +181,7 @@ const exitDate = (date: string | null) =>
 }
 .result-percent {
   color: var(--success);
-  font-size: inherit;
+  font-size: 1.25em;
   font-weight: 600;
 }
 .progress .result-percent {
@@ -214,7 +214,7 @@ const exitDate = (date: string | null) =>
   flex: 1;
   min-width: 0;
   display: grid;
-  grid-template-columns: 52px 134px minmax(0, 1fr) auto 15px;
+  grid-template-columns: 52px 160.8px minmax(0, 1fr) auto 15px;
   gap: 20px;
   align-items: center;
   padding: 19px 22px;
@@ -234,6 +234,8 @@ const exitDate = (date: string | null) =>
   color: var(--accent);
 }
 .thumbnail {
+  display: block;
+  width: 100%;
   aspect-ratio: 16 / 9;
   border-radius: 9px;
   overflow: hidden;
@@ -285,7 +287,7 @@ const exitDate = (date: string | null) =>
 }
 @media (max-width: 1150px) {
   .level-row {
-    grid-template-columns: 43px 105px minmax(0, 1fr) auto;
+    grid-template-columns: 43px 126px minmax(0, 1fr) auto;
     gap: 14px;
     padding: 16px;
   }
@@ -319,7 +321,7 @@ const exitDate = (date: string | null) =>
     justify-content: flex-end;
   }
   .level-row {
-    grid-template-columns: 79px minmax(0, 1fr) auto;
+    grid-template-columns: 94.8px minmax(0, 1fr) auto;
     gap: 12px;
     padding: 16px 12px;
     min-height: 106px;

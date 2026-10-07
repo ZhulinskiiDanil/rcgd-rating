@@ -126,12 +126,14 @@ const features = relations
       throw new Error(`Missing rings in OSM relation ${relation.id}`);
     return {
       osmId: relation.id,
-      name: /^(Гатчинский|Сосновоборский) /.test(relation.tags.name)
-        ? `${relation.tags.name.split(" ")[0]} городской округ`
-        : relation.tags.name.replace(
-            / (район|муниципальный округ|городской округ)$/,
-            "",
-          ),
+      name: /^Гатчинский /.test(relation.tags.name)
+        ? "Гатчинский муниципальный округ"
+        : /^Сосновоборский /.test(relation.tags.name)
+          ? "Сосновоборский городской округ"
+          : relation.tags.name.replace(
+              / (район|муниципальный округ|городской округ)$/,
+              "",
+            ),
       sourceName: relation.tags.name,
       region: relation.tags.admin_level === "5" ? "spb" : "lo",
       bounds: bounds(rings.flat()),

@@ -4,6 +4,7 @@ export const PERMISSIONS = [
   "districts:write",
   "records:write",
   "news:write",
+  "history:write",
   "sync:run",
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
@@ -13,6 +14,7 @@ export const permissionLabels: Record<Permission, string> = {
   "districts:write": "Районы",
   "records:write": "Рекорды",
   "news:write": "Новости",
+  "history:write": "История",
   "sync:run": "Синхронизация",
 };
 export interface Level {
@@ -80,6 +82,8 @@ export interface RecordEntry {
   sourceVideo: string;
   deletedAt: string | null;
   isFirstRk?: number;
+  isFirstSpb?: number;
+  isFirstLo?: number;
   updatedAt: string;
 }
 export interface DistrictExtra {
@@ -95,6 +99,7 @@ export interface Account {
   login: string;
   nickname: string;
   passwordHash: string | null;
+  passwordResetRequired?: number;
   sessionKey: string;
   avatarLocked: number;
   headAdmin: number;

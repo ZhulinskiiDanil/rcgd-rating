@@ -15,7 +15,14 @@ const visibleRows = computed(() =>
   >
     <h2 id="first-victors-heading">Первые викторы</h2>
     <div v-for="row in visibleRows" :key="row.region" class="region-row">
-      <span class="region-label">{{ row.label }}</span>
+      <div class="region-heading">
+        <span class="region-label">{{ row.label }}</span
+        ><small
+          v-if="row.victors.some((victor) => victor.isFirstRk)"
+          class="rk-victor"
+          >Первый РК виктор</small
+        >
+      </div>
       <div class="region-result">
         <div class="victor-names" v-if="row.victors.length">
           <NuxtLink
@@ -33,7 +40,15 @@ const visibleRows = computed(() =>
             <time :datetime="row.firstDate">{{
               formatCompletionDate(row.firstDate)
             }}</time>
-            <span v-if="row.victors.length > 1">одна дата прохождения</span>
+            <span
+              v-if="
+                row.victors.length > 1 &&
+                row.victors.every(
+                  (victor) => victor.achievedAt === row.firstDate,
+                )
+              "
+              >одна дата прохождения</span
+            >
           </div>
         </template>
         <span v-else-if="row.hasCompletions" class="unknown"
@@ -69,6 +84,15 @@ const visibleRows = computed(() =>
   font-size: 15px;
   color: var(--text);
   line-height: 1.6;
+}
+.region-heading {
+  display: grid;
+  align-content: start;
+  gap: 4px;
+}
+.rk-victor {
+  font-size: 13px;
+  color: var(--muted);
 }
 .region-result {
   min-width: 0;

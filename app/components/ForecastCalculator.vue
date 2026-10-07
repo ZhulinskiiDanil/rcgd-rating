@@ -10,7 +10,14 @@ import {
   listBoundary,
 } from "#shared/utils/rating";
 import { formatScore } from "#shared/utils/presentation";
-const props = defineProps<{ entityType: ForecastEntity; entityId: number }>();
+const props = withDefaults(
+  defineProps<{
+    entityType: ForecastEntity;
+    entityId: number;
+    showFormula?: boolean;
+  }>(),
+  { showFormula: true },
+);
 const { data } = await useCatalog();
 const boundary = computed(() => listBoundary(data.value?.levels ?? []));
 type Plan = {
@@ -241,7 +248,11 @@ function note(plan: Plan) {
         Сценарий не сохраняет рекорды. Остальные игроки сохраняют свои
         достижения; их баллы пересчитываются при перестановке уровней.
       </p>
-      <RatingBreakdown :rating="result.value.after" :levels="data?.levels" />
+      <RatingBreakdown
+        :rating="result.value.after"
+        :levels="data?.levels"
+        :show-formula="showFormula"
+      />
       <div v-if="result.value.changes.length" class="list-impact">
         <h3>Изменения СПб-листа: {{ result.value.changes.length }}</h3>
         <ul>

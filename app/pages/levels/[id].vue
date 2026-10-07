@@ -280,6 +280,7 @@ useHead({ title: () => `${level.value?.name} · СПб Demonlist` });
           :records="records"
           :players="data.players"
           :levels="data.levels"
+          :districts="data.districts"
         />
       </section>
       <aside class="threshold-panel panel">
@@ -809,7 +810,8 @@ useHead({ title: () => `${level.value?.name} · СПб Demonlist` });
     gap: 0;
   }
   .neighbor-rank {
-    display: none;
+    flex-shrink: 0;
+    font-size: 13px;
   }
   .section-heading h2 {
     font-size: 20px;

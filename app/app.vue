@@ -33,12 +33,13 @@ const navigation = [
   { to: "/districts", text: "Районы" },
   { to: "/changelog", text: "История" },
   { to: "/rules", text: "Правила" },
+  { to: "/administration", text: "Администрация" },
   { to: "/news", text: "Новости" },
 ];
 const active = (path: string) =>
   path === "/demonlist"
     ? route.path === "/demonlist" || route.path.startsWith("/levels/")
-    : route.path.startsWith(path);
+    : route.path === path || route.path.startsWith(path + "/");
 </script>
 <template>
   <div class="app" :class="'theme-' + theme">
@@ -501,8 +502,16 @@ nav a.selected {
   white-space: nowrap;
 }
 .account-link :deep(img) {
-  width: 25px;
-  height: 25px;
+  width: 40px;
+  height: 40px;
+}
+.account-link.is-signed-in {
+  width: 56px;
+  height: 56px;
+  min-width: 56px;
+  max-width: none;
+  padding: 8px;
+  aspect-ratio: 1;
 }
 .menu-toggle {
   display: none !important;
@@ -602,7 +611,7 @@ footer {
     padding-inline: 28px;
   }
 }
-@media (max-width: 820px) {
+@media (max-width: 1040px) {
   .site-header {
     position: sticky;
     top: 0;

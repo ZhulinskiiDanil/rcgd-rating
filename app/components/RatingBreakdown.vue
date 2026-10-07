@@ -3,11 +3,15 @@ import type { Level, Ranking } from "#shared/types/domain";
 import { hasLevelPage } from "#shared/utils/rating";
 import { formatScore, formatPosition } from "#shared/utils/presentation";
 import type { Victor } from "#shared/utils/victors";
-const props = defineProps<{
-  rating: Ranking;
-  levels?: Level[];
-  victorsByLevel?: Record<number, Victor[]>;
-}>();
+const props = withDefaults(
+  defineProps<{
+    rating: Ranking;
+    levels?: Level[];
+    victorsByLevel?: Record<number, Victor[]>;
+    showFormula?: boolean;
+  }>(),
+  { showFormula: true },
+);
 const linkedLevels = computed(
   () =>
     new Set((props.levels ?? []).filter(hasLevelPage).map((level) => level.id)),
@@ -23,6 +27,7 @@ const linkedLevels = computed(
       <NuxtLink to="/rules">Как считается</NuxtLink>
     </div>
     <p
+      v-if="showFormula"
       class="geometric-formula"
       aria-label="Геометрическое среднее шести результатов"
     >

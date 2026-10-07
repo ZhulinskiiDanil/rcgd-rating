@@ -1,5 +1,10 @@
 <script setup lang="ts">
-import type { Level, Player, RecordEntry } from "#shared/types/domain";
+import type {
+  District,
+  Level,
+  Player,
+  RecordEntry,
+} from "#shared/types/domain";
 import { effectivePercent, hasLevelPage } from "#shared/utils/rating";
 import { formatPosition } from "#shared/utils/presentation";
 import { recordVideoUrl } from "#shared/utils/record-video";
@@ -9,6 +14,7 @@ const props = defineProps<{
   records: PublicRecord[];
   players: (Player & { avatar?: string | null })[];
   levels: Level[];
+  districts?: District[];
   highlightCompletions?: boolean;
   firstRecordIds?: number[];
 }>();
@@ -20,6 +26,22 @@ const linkedLevels = computed(
   () => new Set(props.levels.filter(hasLevelPage).map((level) => level.id)),
 );
 const firstIds = computed(() => new Set(props.firstRecordIds ?? []));
+const districtRegions = computed(
+  () =>
+    new Map(
+      props.districts?.map((district) => [district.id, district.region]) ?? [],
+    ),
+);
+function regionalMark(record: PublicRecord) {
+  if (percent(record) !== 100) return "";
+  const districtId = playerMap.value.get(record.playerId)?.districtId;
+  const region = districtId ? districtRegions.value.get(districtId) : null;
+  return region === "spb" && record.isFirstSpb
+    ? "Первый СПб виктор"
+    : region === "lo" && record.isFirstLo
+      ? "Первый ЛО виктор"
+      : "";
+}
 </script>
 <template>
   <div v-if="records.length" class="table-wrap records-wrap">
@@ -63,6 +85,9 @@ const firstIds = computed(() => new Set(props.firstRecordIds ?? []));
                 <small v-if="r.isFirstRk" class="rk-victor"
                   >Первый РК виктор</small
                 >
+                <small v-if="regionalMark(r)" class="rk-victor">{{
+                  regionalMark(r)
+                }}</small>
               </div>
             </div>
           </td>

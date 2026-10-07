@@ -22,6 +22,7 @@ export function authenticatePassword(login: string, password: string) {
 }
 
 export function accountDestination(id: number) {
+  if (account(id)?.passwordResetRequired) return "/account/settings";
   const player = one<{ id: number }>(
     "SELECT id FROM players WHERE accountId=? AND deletedAt IS NULL",
     id,
@@ -61,7 +62,7 @@ export function changeOwnPassword(
         message: "Войдите в аккаунт заново",
       });
     if (
-      !hasRecoveryProof &&
+      (!hasRecoveryProof || user.passwordResetRequired) &&
       (!user.passwordHash ||
         !value.currentPassword ||
         !verifySecret(user.passwordHash, value.currentPassword))
@@ -73,6 +74,15 @@ export function changeOwnPassword(
           : "Подтвердите доступ через ранее привязанный сервис",
       });
     if (
+      user.passwordResetRequired &&
+      user.passwordHash &&
+      verifySecret(user.passwordHash, value.password)
+    )
+      throw createError({
+        statusCode: 400,
+        message: "Новый пароль должен отличаться от временного",
+      });
+    if (
       value.login &&
       one("SELECT id FROM accounts WHERE login=? AND id!=?", value.login, id)
     )
@@ -80,7 +90,7 @@ export function changeOwnPassword(
     const key = randomBytes(32).toString("hex");
     db()
       .prepare(
-        "UPDATE accounts SET passwordHash=?,sessionKey=?,login=? WHERE id=?",
+        "UPDATE accounts SET passwordHash=?,sessionKey=?,login=?,passwordResetRequired=0 WHERE id=?",
       )
       .run(hashSecret(value.password), key, value.login || user.login, id);
     logChange(

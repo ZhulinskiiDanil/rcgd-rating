@@ -61,6 +61,7 @@ const hasProgressLevels = computed(() =>
 );
 watch(tier, () => {
   completion.value = "all";
+  if (import.meta.client) window.scrollTo({ top: 0, behavior: "instant" });
 });
 const completed = computed(
   () =>
@@ -176,8 +177,11 @@ useHead({ title: "Демонлист · СПб Demonlist" });
       здесь больше не принимаются.
     </p>
     <p v-if="player" class="legend">
-      <span>Зелёная рамка — пройден</span><span>Жёлтая — {{ firstLabel }}</span
-      ><span v-if="hasProgressLevels">Синяя — прогресс</span>
+      <span class="legend-completed">Зелёная рамка — пройден</span
+      ><span class="legend-first">Жёлтая — {{ firstLabel }}</span
+      ><span v-if="hasProgressLevels" class="legend-progress"
+        >Синяя — прогресс</span
+      >
     </p>
     <div v-if="error" class="error" role="alert">
       Не удалось загрузить лист. <button @click="refresh()">Повторить</button>
@@ -243,8 +247,11 @@ useHead({ title: "Демонлист · СПб Demonlist" });
     border-radius: 3px;
     margin-right: 7px;
   }
-  span:last-child::before {
+  .legend-first::before {
     border-color: var(--warm);
+  }
+  .legend-progress::before {
+    border-color: var(--accent);
   }
 }
 @media (max-width: 540px) {

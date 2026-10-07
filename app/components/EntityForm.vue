@@ -27,11 +27,22 @@ const imageUploads = ref(new Set<string>());
 const dateBusy = ref(false);
 const dateMessage = ref("");
 const dateError = ref(false);
+const passwordBusy = ref(false);
 let dateRequest: AbortController | undefined;
 let dateTimer: ReturnType<typeof setTimeout> | undefined;
 let dateVersion = 0;
-const isBusy = computed(() => busy.value || imageUploads.value.size > 0);
-const visibleFields = computed(() => props.fields);
+const isBusy = computed(
+  () => busy.value || passwordBusy.value || imageUploads.value.size > 0,
+);
+const visibleFields = computed(() =>
+  props.fields.filter(
+    (field) =>
+      !field.visibleWhen ||
+      field.visibleWhen.values.some(
+        (value) => String(value) === String(form.value[field.visibleWhen!.key]),
+      ),
+  ),
+);
 const isDirty = computed(
   () => JSON.stringify(form.value) !== initialSnapshot.value,
 );
@@ -379,6 +390,13 @@ onMounted(() => {
         <small v-else-if="f.help">{{ f.help }}</small>
       </div>
     </div>
+    <AccountPasswordReset
+      v-if="resource === 'accounts' && row?.id"
+      :key="Number(row.id)"
+      :account-id="Number(row.id)"
+      :disabled="busy || imageUploads.size > 0"
+      @busy="passwordBusy = $event"
+    />
     <EntityDeleteButton
       v-if="
         row?.id &&
