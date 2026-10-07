@@ -36,10 +36,9 @@ export default defineEventHandler((event) => {
     (page - 1) * 50,
   ).map((row) => ({
     ...row,
-    title: withoutHistoryQuotes(
+    title:
       row.kind === "district-rating"
-        ? formatDistrictHistory(row.title, districtNames)
-        : row.title,
-    ),
+        ? formatDistrictHistory(withoutHistoryQuotes(row.title), districtNames)
+        : withoutHistoryQuotes(row.title),
   }));
 });

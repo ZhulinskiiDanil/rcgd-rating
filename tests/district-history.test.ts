@@ -119,4 +119,22 @@ describe("Склонение районов в истории изменений
       expect((await handler({} as never))[0]?.title).toBe(title);
     expect(all("SELECT * FROM changes")).toEqual(before);
   });
+
+  it("склоняет соседей в старом событии с кавычками вокруг районов", async () => {
+    const title =
+      "«Гатчинский» вошёл в рейтинг на 16 место с 128.10 очками выше «Колпинский» и ниже «Курортный»";
+    db()
+      .prepare(
+        "INSERT INTO changes(kind,title,updatedAt) VALUES('district-rating',?,'manual-version')",
+      )
+      .run(title);
+    const before = all("SELECT * FROM changes");
+    vi.stubGlobal("defineEventHandler", (handler: unknown) => handler);
+    vi.stubGlobal("getQuery", () => ({ kind: "district-rating" }));
+    const handler = (await import("../server/api/changes.get")).default;
+    expect((await handler({} as never))[0]?.title).toBe(
+      "Гатчинский вошёл в рейтинг на 16 место с 128.10 очками выше Колпинского и ниже Курортного",
+    );
+    expect(all("SELECT * FROM changes")).toEqual(before);
+  });
 });
