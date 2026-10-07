@@ -114,6 +114,31 @@ useHead({ title: () => `${level.value?.name} · СПб Demonlist` });
         />
       </div>
     </header>
+    <nav
+      v-if="neighbors.previous || neighbors.next"
+      class="level-pagination"
+      aria-label="Соседние уровни"
+    >
+      <NuxtLink
+        v-if="neighbors.previous"
+        :to="`/levels/${neighbors.previous.id}`"
+        class="previous"
+        ><AppIcon name="arrow" /><span
+          ><small>Сложнее</small
+          ><strong>{{ neighbors.previous.name }}</strong></span
+        ><span class="neighbor-rank"
+          >#{{ neighbors.previous.localRank }}</span
+        ></NuxtLink
+      ><NuxtLink
+        v-if="neighbors.next"
+        :to="`/levels/${neighbors.next.id}`"
+        class="next"
+        ><span class="neighbor-rank">#{{ neighbors.next.localRank }}</span
+        ><span
+          ><small>Легче</small><strong>{{ neighbors.next.name }}</strong></span
+        ><AppIcon name="arrow"
+      /></NuxtLink>
+    </nav>
     <div class="level-hero panel">
       <div class="hero-artwork">
         <LevelVideo :level="level" :fallback-video="completionVideo" />
@@ -122,8 +147,8 @@ useHead({ title: () => `${level.value?.name} · СПб Demonlist` });
             {{
               overallFirst.victors.length
                 ? overallFirst.victors.length > 1
-                  ? "Первые известные викторы"
-                  : "Первый известный виктор"
+                  ? "Первые викторы"
+                  : "Первый виктор"
                 : overallFirst.firstDate
                   ? "Первое известное прохождение"
                   : "Известные викторы"
@@ -205,7 +230,13 @@ useHead({ title: () => `${level.value?.name} · СПб Demonlist` });
             <strong>{{ completions }}</strong
             ><span>Прохождения</span>
           </div>
-          <div>
+          <div
+            v-if="
+              level.globalRank !== null &&
+              level.globalRank <= 150 &&
+              records.length > completions
+            "
+          >
             <strong>{{ records.length - completions }}</strong
             ><span>Прогрессы</span>
           </div>
@@ -240,7 +271,6 @@ useHead({ title: () => `${level.value?.name} · СПб Demonlist` });
           <h2>Прохождения и прогрессы</h2>
           <span class="count">{{ records.length }}</span>
           <EntityEditButton
-            v-if="level.status !== 'legacy'"
             resource="records"
             label="Добавить рекорд"
             :defaults="{ levelId: level.id }"
@@ -306,32 +336,6 @@ useHead({ title: () => `${level.value?.name} · СПб Demonlist` });
       </aside>
     </div>
     <LevelHistory :level-id="level.id" />
-    <nav
-      v-if="neighbors.previous || neighbors.next"
-      class="level-pagination"
-      aria-label="Соседние уровни"
-    >
-      <NuxtLink
-        v-if="neighbors.previous"
-        :to="`/levels/${neighbors.previous.id}`"
-        class="previous"
-        ><AppIcon name="arrow" /><span
-          ><small>Сложнее</small
-          ><strong>{{ neighbors.previous.name }}</strong></span
-        ><span class="neighbor-rank"
-          >#{{ neighbors.previous.localRank }}</span
-        ></NuxtLink
-      >
-      <NuxtLink
-        v-if="neighbors.next"
-        :to="`/levels/${neighbors.next.id}`"
-        class="next"
-        ><span class="neighbor-rank">#{{ neighbors.next.localRank }}</span
-        ><span
-          ><small>Проще</small><strong>{{ neighbors.next.name }}</strong></span
-        ><AppIcon name="arrow"
-      /></NuxtLink>
-    </nav>
   </section>
 </template>
 
@@ -411,7 +415,8 @@ useHead({ title: () => `${level.value?.name} · СПб Demonlist` });
 }
 .level-hero {
   display: grid;
-  grid-template-columns: 45% minmax(0, 1fr);
+  grid-template-columns: 49.5% minmax(0, 1fr);
+  align-items: start;
   overflow: hidden;
   padding: 0;
 }
@@ -475,7 +480,13 @@ useHead({ title: () => `${level.value?.name} · СПб Demonlist` });
   display: flex;
   flex-direction: column;
   align-items: flex-start;
+  > * {
+    flex-shrink: 0;
+    max-width: 100%;
+  }
   h1 {
+    width: 100%;
+    overflow: visible;
     font-size: clamp(32px, 3.9vw, 66px);
     line-height: 1.14;
     margin: 28px 0 16px;
@@ -712,9 +723,7 @@ useHead({ title: () => `${level.value?.name} · СПб Demonlist` });
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 18px;
-  margin-top: 34px;
-  border-top: 1px solid var(--line);
-  padding-top: 22px;
+  margin: 0 0 22px;
   a {
     display: flex;
     align-items: center;
@@ -785,7 +794,6 @@ useHead({ title: () => `${level.value?.name} · СПб Demonlist` });
   }
   .hero-artwork {
     min-height: 0;
-    aspect-ratio: 16 / 9;
   }
   .hero-content {
     padding: 24px;

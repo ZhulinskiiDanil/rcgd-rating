@@ -5,7 +5,6 @@ import type {
   RatedResult,
   Ranking,
 } from "../types/domain";
-export const WEIGHTS = [10, 9, 8, 7, 5, 3] as const;
 export const EMPTY_POSITION = 150;
 export const normalizedName = (value: string) =>
   value.normalize("NFKC").trim().replace(/\s+/g, " ").toLowerCase();
@@ -14,15 +13,52 @@ export const effectivePercent = (record: RecordEntry) =>
     ? Math.max(record.manualPercent ?? 0, record.importedPercent ?? 0)
     : 0;
 
-export function completedLevels(data: DataSet): Level[] {
+function completedIds(data: DataSet): Set<number> {
+  const players = new Set(
+    data.players
+      .filter((player) => !player.deletedAt)
+      .map((player) => player.id),
+  );
   const ids = new Set(
     data.records
-      .filter((r) => effectivePercent(r) === 100)
+      .filter((r) => players.has(r.playerId) && effectivePercent(r) === 100)
       .map((r) => r.levelId),
   );
-  data.extras.forEach((r) => ids.add(r.levelId));
+  data.extras
+    .filter((extra) => !extra.deletedAt)
+    .forEach((r) => ids.add(r.levelId));
+  return ids;
+}
+
+export function listBoundary(levels: Level[]): number | null {
+  const mika = levels.find(
+    (entry) =>
+      normalizedName(entry.name) === "mika" && entry.globalRank !== null,
+  );
+  return mika?.globalRank ?? null;
+}
+
+export function withinListBoundary(
+  level: Level,
+  levels: Level[],
+  boundary = listBoundary(levels),
+): boolean {
+  return (
+    boundary === null ||
+    level.globalRank === null ||
+    level.globalRank <= boundary
+  );
+}
+
+export function completedLevels(data: DataSet): Level[] {
+  const ids = completedIds(data);
+  const boundary = listBoundary(data.levels);
   const eligible = data.levels.filter(
-    (l) => !l.listExcluded && (l.verifiedLocal || ids.has(l.id)),
+    (l) =>
+      !l.listExcluded &&
+      !l.deletedAt &&
+      withinListBoundary(l, data.levels, boundary) &&
+      (l.verifiedLocal || ids.has(l.id)),
   );
   return orderLevels(eligible);
 }
@@ -40,20 +76,23 @@ function orderLevels(eligible: Level[]): Level[] {
     )
     .sort((a, b) => a.manualPosition! - b.manualPosition! || a.id - b.id);
   const ordered: Level[] = [];
-  while (global.length || manual.length) {
+  let globalIndex = 0,
+    manualIndex = 0;
+  while (globalIndex < global.length || manualIndex < manual.length) {
     if (
-      manual.length &&
-      (!global.length || manual[0]!.manualPosition! <= ordered.length + 1)
+      manualIndex < manual.length &&
+      (globalIndex >= global.length ||
+        manual[manualIndex]!.manualPosition! <= ordered.length + 1)
     )
-      ordered.push(manual.shift()!);
-    else ordered.push(global.shift()!);
+      ordered.push(manual[manualIndex++]!);
+    else ordered.push(global[globalIndex++]!);
   }
   return ordered;
 }
 
 export type ListTier = "main" | "extended" | "legacy";
 export function listTier(level: Level): ListTier | null {
-  if (level.listExcluded) return null;
+  if (level.listExcluded || level.deletedAt) return null;
   if (level.status === "legacy") return "legacy";
   if (
     (level.status === "main" || level.status === "extended") &&
@@ -74,18 +113,21 @@ export function reconcileList(
   const positions = new Map(
     completedLevels(data).map((level, i) => [level.id, i + 1]),
   );
-  const proofIds = new Set(
-    data.records
-      .filter((record) => effectivePercent(record) === 100)
-      .map((record) => record.levelId),
-  );
-  data.extras.forEach((extra) => proofIds.add(extra.levelId));
+  const proofIds = completedIds(data);
+  const boundary = listBoundary(data.levels);
   return data.levels.map((level) => {
+    if (level.deletedAt) return { ...level, localRank: null };
     const position = positions.get(level.id) ?? null;
-    const current = !level.listExcluded && position !== null && position <= 150;
+    const current =
+      !level.listExcluded &&
+      !level.deletedAt &&
+      position !== null &&
+      position <= 150;
     const wasCurrent = level.status === "main" || level.status === "extended";
     const status: Level["status"] =
-      level.listExcluded || !(level.verifiedLocal || proofIds.has(level.id))
+      level.listExcluded ||
+      level.deletedAt ||
+      !(level.verifiedLocal || proofIds.has(level.id))
         ? "catalog"
         : current
           ? position <= 75
@@ -113,9 +155,11 @@ export function reconcileList(
       exitReason:
         status !== "legacy"
           ? null
-          : position === null
-            ? "Нет активного подтверждённого прохождения или позиции"
-            : "Вне топа-150 СПб",
+          : !withinListBoundary(level, data.levels, boundary)
+            ? "Ниже Mika"
+            : position === null
+              ? "Нет активного подтверждённого прохождения или позиции"
+              : "Вне топа-150 СПб",
     };
   });
 }
@@ -139,7 +183,7 @@ export function hypotheticalPosition(
   level: Level,
   completed: Level[],
 ): number | null {
-  if (level.listExcluded) return null;
+  if (level.listExcluded || level.deletedAt) return null;
   const existing = completed.findIndex((item) => item.id === level.id);
   if (existing >= 0) return existing + 1;
   if (level.globalRank === null && !level.manualPosition) return null;
@@ -172,10 +216,22 @@ export function progressPosition(
   return Number.isFinite(result) && result <= EMPTY_POSITION ? result : null;
 }
 
-export function weightedTop(results: RatedResult[]): Ranking {
+export function geometricMean(positions: number[]): number {
+  return (
+    positions.reduce((product, position) => product * position, 1) **
+    (1 / positions.length)
+  );
+}
+
+export function geometricTop(results: RatedResult[]): Ranking {
   const unique = new Map<number, RatedResult>();
   for (const r of results) {
-    if (r.levelId === null || r.position > EMPTY_POSITION || r.position < 1)
+    if (
+      r.levelId === null ||
+      !Number.isFinite(r.position) ||
+      r.position > EMPTY_POSITION ||
+      r.position < 1
+    )
       continue;
     const old = unique.get(r.levelId);
     if (!old || r.position < old.position) unique.set(r.levelId, r);
@@ -193,19 +249,43 @@ export function weightedTop(results: RatedResult[]): Ranking {
     });
   return {
     top,
-    score: top.reduce((sum, r, i) => sum + r.position * WEIGHTS[i]!, 0) / 42,
+    score: top.every((result) => result.position === EMPTY_POSITION)
+      ? EMPTY_POSITION
+      : geometricMean(top.map((result) => result.position)),
   };
 }
 
-export function playerRating(data: DataSet, playerId: number): Ranking {
-  const completed = completedLevels(data);
+export function playerRating(
+  data: DataSet,
+  playerId: number,
+  completed = completedLevels(data),
+): Ranking {
+  if (
+    !data.players.some((player) => player.id === playerId && !player.deletedAt)
+  )
+    return geometricTop([]);
+  const boundary = listBoundary(data.levels);
+  const positions = new Map(
+    completed.map((level, index) => [level.id, index + 1]),
+  );
   const levels = new Map(data.levels.map((l) => [l.id, l]));
   const results: RatedResult[] = [];
   for (const record of data.records.filter((r) => r.playerId === playerId)) {
     const level = levels.get(record.levelId),
       percent = effectivePercent(record);
-    if (!level || level.listExcluded || !percent) continue;
-    const h = hypotheticalPosition(level, completed);
+    if (
+      !level ||
+      level.listExcluded ||
+      level.deletedAt ||
+      !withinListBoundary(level, data.levels, boundary) ||
+      !percent
+    )
+      continue;
+    if (percent < 100 && (level.globalRank === null || level.globalRank > 150))
+      continue;
+    const h =
+      positions.get(level.id) ??
+      (percent < 100 ? hypotheticalPosition(level, completed) : null);
     if (h === null) continue;
     const position =
       percent === 100
@@ -222,12 +302,18 @@ export function playerRating(data: DataSet, playerId: number): Ranking {
         kind: percent === 100 ? "completion" : "progress",
       });
   }
-  return weightedTop(results);
+  return geometricTop(results);
 }
 
-export function districtRating(data: DataSet, districtId: number): Ranking {
+export function districtRating(
+  data: DataSet,
+  districtId: number,
+  completed = completedLevels(data),
+): Ranking {
   const players = new Set(
-    data.players.filter((p) => p.districtId === districtId).map((p) => p.id),
+    data.players
+      .filter((p) => p.districtId === districtId && !p.deletedAt)
+      .map((p) => p.id),
   );
   const ids = new Set(
     data.records
@@ -235,10 +321,10 @@ export function districtRating(data: DataSet, districtId: number): Ranking {
       .map((r) => r.levelId),
   );
   data.extras
-    .filter((e) => e.districtId === districtId)
+    .filter((e) => e.districtId === districtId && !e.deletedAt)
     .forEach((e) => ids.add(e.levelId));
-  return weightedTop(
-    completedLevels(data).flatMap((l, i) =>
+  return geometricTop(
+    completed.flatMap((l, i) =>
       ids.has(l.id)
         ? [
             {

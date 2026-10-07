@@ -7,12 +7,16 @@ export function useAdminSchemas(data: Ref<AdminData | null | undefined>) {
       data.value?.levels.map((l) => ({
         value: l.id,
         label: `${l.name} · ${l.creator} · глобал ${l.globalRank ?? "—"} · ID ${l.id}`,
-        disabled: l.status === "legacy",
+        disabled: !!l.deletedAt,
       })) ?? [],
   );
   const playerOptions = computed(
     () =>
-      data.value?.players.map((p) => ({ value: p.id, label: p.name })) ?? [],
+      data.value?.players.map((p) => ({
+        value: p.id,
+        label: `${p.name} · ID ${p.id}`,
+        disabled: !!p.deletedAt,
+      })) ?? [],
   );
   const districtOptions = computed(
     () =>
@@ -46,10 +50,11 @@ export function useAdminSchemas(data: Ref<AdminData | null | undefined>) {
           options:
             data.value?.accountOptions.map((a) => ({
               value: a.id,
-              label: a.login,
+              label: `${a.displayName} · ID ${a.id}`,
             })) ?? [],
         },
         { key: "bio", label: "Описание", type: "textarea" },
+        { key: "hidden", label: "Скрыть в рейтинге игроков", type: "checkbox" },
         {
           key: "inactive",
           label: "Неактивный игрок — выделять красным",
@@ -85,6 +90,34 @@ export function useAdminSchemas(data: Ref<AdminData | null | undefined>) {
           help: "Название и автор импортированного уровня обновляются из глобала.",
         },
         { key: "creator", label: "Опубликовано" },
+        { key: "gdlId", label: "ID уровня в Global Demonlist", type: "number" },
+        {
+          key: "globalRank",
+          label: "Позиция в Global Demonlist",
+          type: "number",
+          help: "Обновится при следующем импорте глобала.",
+        },
+        {
+          key: "listPercent",
+          label: "t — минимальный прогресс, %",
+          type: "number",
+        },
+        {
+          key: "endPercent",
+          label: "T — последняя возможность умереть, %",
+          type: "number",
+        },
+        {
+          key: "thresholdSource",
+          label: "Источник процентов",
+          type: "select",
+          nullable: true,
+          options: [
+            { value: "manual", label: "Вручную" },
+            { value: "coreboard", label: "Coreboard" },
+          ],
+          help: "Изменённые вручную t/T сохраняются при синхронизации. Очисти источник для возврата к Coreboard.",
+        },
         { key: "ingameId", label: "ID уровня в игре", type: "number" },
         {
           key: "manualPosition",
@@ -226,7 +259,7 @@ export function useAdminSchemas(data: Ref<AdminData | null | undefined>) {
           type: "checkbox",
           help: "Для исправления исчезнувшего или пониженного рекорда. Актуальный принятый результат может вернуться при следующем импорте.",
         },
-        { key: "note", label: "Заметка администрации", type: "textarea" },
+        { key: "isFirstRk", label: "Первый РК виктор", type: "checkbox" },
       ],
       columns: [
         { key: "id", label: "ID" },
@@ -238,14 +271,12 @@ export function useAdminSchemas(data: Ref<AdminData | null | undefined>) {
         { key: "reviewNeeded", label: "Проверка" },
       ],
       rows:
-        data.value?.records
-          .filter((r) => !r.deletedAt)
-          .map((r) => ({
-            ...r,
-            playerName: data.value?.players.find((p) => p.id === r.playerId)
-              ?.name,
-            levelName: data.value?.levels.find((l) => l.id === r.levelId)?.name,
-          })) ?? [],
+        data.value?.records.map((r) => ({
+          ...r,
+          playerName: data.value?.players.find((p) => p.id === r.playerId)
+            ?.name,
+          levelName: data.value?.levels.find((l) => l.id === r.levelId)?.name,
+        })) ?? [],
     },
     extras: {
       fields: [
@@ -284,6 +315,35 @@ export function useAdminSchemas(data: Ref<AdminData | null | undefined>) {
     },
     accounts: {
       fields: [
+        { key: "login", label: "Логин", required: true },
+        { key: "nickname", label: "Отображаемый ник" },
+        { key: "headAdmin", label: "Главный администратор", type: "checkbox" },
+        {
+          key: "avatarLocked",
+          label: "Запретить пользователю менять аватар",
+          type: "checkbox",
+        },
+        {
+          key: "unlinkDiscord",
+          label: "Отвязать потерянный Discord",
+          type: "checkbox",
+        },
+        {
+          key: "transferHeadAdminTo",
+          label: "Передать права главного администратора",
+          type: "select",
+          nullable: true,
+          valueType: "number",
+          options:
+            data.value?.accounts
+              .filter((a) => !a.disabled)
+              .map((a) => ({
+                value: a.id,
+                label: `${a.displayName} · ID ${a.id}`,
+              })) ?? [],
+          help: "Выбранный аккаунт получит права, а текущий их передаст. Для второго главного администратора включи флажок в его аккаунте.",
+        },
+
         {
           key: "avatarUrl",
           label: "Аватар аккаунта",
@@ -303,9 +363,10 @@ export function useAdminSchemas(data: Ref<AdminData | null | undefined>) {
       ],
       columns: [
         { key: "id", label: "ID" },
+        { key: "displayName", label: "Ник" },
         { key: "login", label: "Логин" },
-        { key: "headAdmin", label: "Head-admin" },
-        { key: "permissions", label: "Permissions" },
+        { key: "headAdmin", label: "Главный администратор" },
+        { key: "permissions", label: "Разрешения" },
         { key: "disabled", label: "Отключён" },
       ],
       rows: data.value?.accounts ?? [],

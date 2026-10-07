@@ -14,25 +14,30 @@ export default defineEventHandler(async (event) => {
   const data = dataset();
   return {
     ...data,
-    records: data.records.filter((record) => !record.deletedAt),
+
     accounts: user.headAdmin
       ? all<{
           id: number;
           login: string;
+          nickname: string;
+          displayName: string;
+          avatarLocked: number;
           headAdmin: number;
           disabled: number;
           permissions: string;
           avatarUrl: string;
           avatar: string | null;
         }>(
-          "SELECT id,login,headAdmin,disabled,permissions,avatarUrl,COALESCE(NULLIF(avatarUrl,''),NULLIF(discordAvatar,''),NULLIF(googleAvatar,'')) AS avatar FROM accounts",
+          "SELECT a.id,a.login,a.nickname,COALESCE(NULLIF(p.name,''),NULLIF(a.nickname,''),a.login) AS displayName,a.headAdmin,a.disabled,a.permissions,a.avatarLocked,a.avatarUrl,COALESCE(NULLIF(a.avatarUrl,''),NULLIF(a.discordAvatar,''),NULLIF(a.googleAvatar,'')) AS avatar FROM accounts a LEFT JOIN players p ON p.accountId=a.id AND p.deletedAt IS NULL",
         ).map((a) => ({
           ...a,
           permissions: JSON.parse(a.permissions) as string[],
         }))
       : [],
     accountOptions: can("players:write")
-      ? all<{ id: number; login: string }>("SELECT id,login FROM accounts")
+      ? all<{ id: number; login: string; displayName: string }>(
+          "SELECT a.id,a.login,COALESCE(NULLIF(p.name,''),NULLIF(a.nickname,''),a.login) AS displayName FROM accounts a LEFT JOIN players p ON p.accountId=a.id AND p.deletedAt IS NULL",
+        )
       : [],
     syncRuns: can("sync:run")
       ? all<{

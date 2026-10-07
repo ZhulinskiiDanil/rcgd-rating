@@ -61,7 +61,9 @@ describe("Границы листа, удаления и история", () => 
       "New hardest» поставлен в топ на 1 место",
     );
     expect(events[0].title).toContain("Level 75» переходит в Extended list");
-    expect(events[0].title).toContain("Level 150» вылетает в Legacy list");
+    expect(events[0].title).toContain(
+      "Level 150» подвинут с 150 места в Legacy list",
+    );
     expect(all("SELECT * FROM levelHistory")).toHaveLength(151);
     expect(
       one<any>("SELECT status,localRank FROM levels WHERE id=150"),

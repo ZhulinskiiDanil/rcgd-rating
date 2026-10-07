@@ -22,6 +22,14 @@ const linkedLevels = computed(
       </div>
       <NuxtLink to="/rules">Как считается</NuxtLink>
     </div>
+    <p
+      class="geometric-formula"
+      aria-label="Геометрическое среднее шести результатов"
+    >
+      <sup>6</sup>√({{
+        rating.top.map((result) => formatPosition(result.position)).join(" × ")
+      }}) = {{ formatScore(rating.score) }}
+    </p>
     <div class="table-wrap" tabindex="0">
       <table aria-label="Расчёт рейтинга по шести лучшим результатам">
         <thead>
@@ -74,6 +82,16 @@ const linkedLevels = computed(
   </div>
 </template>
 <style scoped lang="scss">
+.geometric-formula {
+  margin: 0;
+  padding: 0 24px 20px;
+  font-size: 16px;
+  overflow-wrap: anywhere;
+  color: var(--text);
+  sup {
+    font-size: 11px;
+  }
+}
 .breakdown {
   overflow: hidden;
   font-variant-numeric: tabular-nums;

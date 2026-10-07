@@ -9,7 +9,9 @@ export default defineEventHandler(async (event) => {
   );
   if (!before) throw createError({ statusCode: 404 });
   mutate("Удалено отдельное достижение района", user.id, () => {
-    db().prepare("DELETE FROM districtExtras WHERE id=?").run(id);
+    db()
+      .prepare("UPDATE districtExtras SET deletedAt=? WHERE id=?")
+      .run(new Date().toISOString(), id);
     logChange(
       "district-extra",
       before.districtId,

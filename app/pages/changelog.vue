@@ -2,12 +2,13 @@
 import { hasLevelPage } from "#shared/utils/rating";
 const { data: catalog } = await useCatalog();
 const page = ref(1),
-  kind = ref("");
-watch(kind, () => {
+  kind = ref("level"),
+  search = ref("");
+watch([kind, search], () => {
   page.value = 1;
 });
 const { data, error, status, refresh } = await useFetch("/api/changes", {
-  query: { page, kind },
+  query: { page, kind, search },
 });
 const labels: Record<string, string> = {
   level: "Уровни",
@@ -75,13 +76,17 @@ useHead({ title: "История изменений · СПб Demonlist" });
     <div class="history-toolbar">
       <label
         >Тип события<select v-model="kind">
-          <option value="">Все события</option>
           <option v-for="(name, key) in labels" :key="key" :value="key">
             {{ name }}
           </option>
         </select></label
       >
-      <p>От последних событий к первым</p>
+      <label
+        >Поиск<input
+          v-model="search"
+          type="search"
+          placeholder="Уровень, игрок или район"
+      /></label>
     </div>
     <div v-if="error" class="error">
       Не удалось загрузить историю.
@@ -121,13 +126,8 @@ useHead({ title: "История изменений · СПб Demonlist" });
         {{ status === "pending" ? "Загружаем историю" : "Событий пока нет" }}
       </h2>
       <p v-if="status !== 'pending'">
-        {{
-          kind
-            ? "Попробуйте выбрать другой тип события или вернуться ко всем изменениям."
-            : "Здесь появятся обновления листа и рейтингов."
-        }}
+        Попробуйте другой запрос или тип события.
       </p>
-      <button v-if="kind" @click="kind = ''">Все события</button>
     </div>
     <nav class="history-pagination" aria-label="Страницы истории">
       <button :disabled="page === 1 || status === 'pending'" @click="page--">

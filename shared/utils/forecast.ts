@@ -6,24 +6,31 @@ import {
   playerRating,
   rankEntries,
   reconcileList,
+  withinListBoundary,
+  completedLevels,
 } from "./rating";
 
 export interface PlannedResult {
   levelId: number;
   percent: number;
+  listPercent?: number | null;
+  endPercent?: number | null;
 }
 export type ForecastEntity = "players" | "districts";
 function rankings(
   data: DataSet,
   type: ForecastEntity,
 ): (Ranking & { id: number; rank: number | null })[] {
+  const completed = completedLevels(data);
   if (type === "players")
     return rankEntries(
-      data.players.map((p) => ({ id: p.id, ...playerRating(data, p.id) })),
+      data.players
+        .filter((p) => !p.deletedAt && !p.hidden)
+        .map((p) => ({ id: p.id, ...playerRating(data, p.id, completed) })),
     );
   const entries = data.districts.map((d) => ({
     id: d.id,
-    ...districtRating(data, d.id),
+    ...districtRating(data, d.id, completed),
   }));
   const active = entries.filter((d) =>
     d.top.some((r) => r.kind === "completion"),
@@ -43,6 +50,23 @@ export function forecastRating(
   entityId: number,
   plans: PlannedResult[],
 ) {
+  if (type === "players" && entityId === 0)
+    source = {
+      ...source,
+      players: [
+        ...source.players,
+        {
+          id: 0,
+          name: "Новый игрок",
+          districtId: null,
+          gdlId: null,
+          bio: "",
+          accountId: null,
+          avatarUrl: "",
+          inactive: 0,
+        },
+      ],
+    };
   if (!source[type].some((entity) => entity.id === entityId))
     throw new Error("Выбери игрока или район.");
   // Only the copies change: the public catalog is shared with other pages.
@@ -52,10 +76,20 @@ export function forecastRating(
     records: source.records.map((r) => ({ ...r })),
     extras: source.extras.map((e) => ({ ...e })),
   };
-  const before = rankings(source, type).find((r) => r.id === entityId)!;
+  const before = rankings(source, type).find((r) => r.id === entityId) ?? {
+    id: entityId,
+    rank: null,
+    ...playerRating(source, entityId),
+  };
   for (const plan of plans) {
     const level = data.levels.find((l) => l.id === plan.levelId);
-    if (!level || level.listExcluded || level.status === "legacy")
+    if (
+      !level ||
+      level.listExcluded ||
+      level.deletedAt ||
+      !withinListBoundary(level, data.levels) ||
+      level.status === "legacy"
+    )
       throw new Error("Этот уровень недоступен для новых результатов.");
     if (
       !Number.isFinite(plan.percent) ||
@@ -68,10 +102,29 @@ export function forecastRating(
       );
     if (level.globalRank === null && level.manualPosition === null)
       throw new Error("У уровня ещё нет позиции для расчёта.");
+    if (plan.listPercent !== undefined || plan.endPercent !== undefined) {
+      const t =
+        plan.listPercent === undefined ? level.listPercent : plan.listPercent;
+      const T =
+        plan.endPercent === undefined ? level.endPercent : plan.endPercent;
+      if (
+        t === null ||
+        T === null ||
+        !Number.isFinite(t) ||
+        !Number.isFinite(T) ||
+        t <= 0 ||
+        T <= t ||
+        T > 100
+      )
+        throw new Error("Для пробы прогресса нужны 0 < t < T ≤ 100.");
+      level.listPercent = t;
+      level.endPercent = T;
+    }
     if (type === "districts") {
       if (
         !data.extras.some(
-          (e) => e.districtId === entityId && e.levelId === level.id,
+          (e) =>
+            e.districtId === entityId && e.levelId === level.id && !e.deletedAt,
         )
       )
         data.extras.push({
@@ -116,7 +169,11 @@ export function forecastRating(
     }
   }
   data.levels = reconcileList(data);
-  const after = rankings(data, type).find((r) => r.id === entityId)!;
+  const after = rankings(data, type).find((r) => r.id === entityId) ?? {
+    id: entityId,
+    rank: null,
+    ...playerRating(data, entityId),
+  };
   const previousLevels = new Map(source.levels.map((l) => [l.id, l]));
   const changes = data.levels.flatMap((level) => {
     const old = previousLevels.get(level.id)!;

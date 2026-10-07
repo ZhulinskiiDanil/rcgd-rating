@@ -8,15 +8,9 @@ const { data, error, refresh } = await useFetch<
     fromTier: string | null;
     toTier: string | null;
     createdAt: string;
+    note: string;
   }[]
 >("/api/history", { query: { type: "levels", id: props.levelId } });
-const tierName = (value: string | null) =>
-  ({
-    main: "Main list",
-    extended: "Extended list",
-    legacy: "Legacy list",
-    catalog: "Вне листа",
-  })[value ?? "catalog"] || value;
 function movement(from: number | null, to: number | null) {
   if (from === null || to === null) return "";
   const delta = from - to;
@@ -36,7 +30,7 @@ function movement(from: number | null, to: number | null) {
           <tr>
             <th>Дата</th>
             <th>Позиция</th>
-            <th>Раздел</th>
+            <th>Примечание</th>
             <th>Сдвиг</th>
           </tr>
         </thead>
@@ -50,11 +44,24 @@ function movement(from: number | null, to: number | null) {
               }}
             </td>
             <td>
-              {{ event.fromRank ? "#" + event.fromRank : "—" }} →
-              {{ event.toRank ? "#" + event.toRank : "—" }}
+              {{
+                event.fromRank
+                  ? "#" + event.fromRank
+                  : event.fromTier === "legacy"
+                    ? "Legacy"
+                    : "—"
+              }}
+              →
+              {{
+                event.toRank
+                  ? "#" + event.toRank
+                  : event.toTier === "legacy"
+                    ? "Legacy"
+                    : "—"
+              }}
             </td>
             <td>
-              {{ tierName(event.fromTier) }} → {{ tierName(event.toTier) }}
+              {{ event.note || "—" }}
             </td>
             <td>{{ movement(event.fromRank, event.toRank) || "—" }}</td>
           </tr>
@@ -69,6 +76,8 @@ function movement(from: number | null, to: number | null) {
   margin-top: 36px;
 }
 td {
-  white-space: nowrap;
+  &:not(:nth-child(3)) {
+    white-space: nowrap;
+  }
 }
 </style>

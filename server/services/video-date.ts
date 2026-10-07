@@ -107,7 +107,10 @@ async function boundedHtml(response: Response): Promise<string> {
   return Buffer.concat(chunks, size).toString("utf8");
 }
 
-export async function lookupVideoDate(input: string): Promise<VideoDateResult> {
+export async function lookupVideoDate(
+  input: string,
+  refresh = false,
+): Promise<VideoDateResult> {
   const sourceVideo = youtubeVideoUrl(input);
   if (!sourceVideo)
     return {
@@ -119,7 +122,8 @@ export async function lookupVideoDate(input: string): Promise<VideoDateResult> {
         : "Добавьте ссылку на видео прохождения или укажите дату вручную.",
     };
   const cached = cache.get(sourceVideo);
-  if (cached && cached.expires > Date.now()) return cached.result;
+  if (cached && cached.expires > Date.now() && (!refresh || cached.result.date))
+    return cached.result;
   let result: VideoDateResult;
   try {
     const response = await fetch(sourceVideo, {

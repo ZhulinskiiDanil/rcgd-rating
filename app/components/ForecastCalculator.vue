@@ -6,13 +6,21 @@ import {
   completedLevels,
   isCurrentLevel,
   progressPosition,
+  withinListBoundary,
+  listBoundary,
 } from "#shared/utils/rating";
 import { formatScore } from "#shared/utils/presentation";
 const props = defineProps<{ entityType: ForecastEntity; entityId: number }>();
 const { data } = await useCatalog();
-const plans = ref<{ key: number; levelId: number | ""; percent: number }[]>([
-  { key: 1, levelId: "", percent: 100 },
-]);
+const boundary = computed(() => listBoundary(data.value?.levels ?? []));
+type Plan = {
+  key: number;
+  levelId: number | "";
+  percent: number;
+  listPercent?: number;
+  endPercent?: number;
+};
+const plans = ref<Plan[]>([{ key: 1, levelId: "", percent: 100 }]);
 let nextKey = 2;
 const search = ref("");
 watch(
@@ -26,6 +34,8 @@ const candidates = computed(() =>
     .filter(
       (l) =>
         !l.listExcluded &&
+        !l.deletedAt &&
+        withinListBoundary(l, data.value!.levels, boundary.value) &&
         l.status !== "legacy" &&
         (l.globalRank !== null || l.manualPosition !== null) &&
         (l.name.toLowerCase().includes(search.value.trim().toLowerCase()) ||
@@ -46,7 +56,8 @@ const source = computed(() =>
     : null,
 );
 const result = computed(() => {
-  if (!source.value || !props.entityId) return null;
+  if (!source.value || (props.entityType === "districts" && !props.entityId))
+    return null;
   try {
     return {
       value: forecastRating(
@@ -58,6 +69,9 @@ const result = computed(() => {
           .map((p) => ({
             levelId: Number(p.levelId),
             percent: props.entityType === "districts" ? 100 : Number(p.percent),
+            ...(props.entityType === "players" && p.percent < 100
+              ? { listPercent: p.listPercent, endPercent: p.endPercent }
+              : {}),
           })),
       ),
       error: "",
@@ -84,7 +98,12 @@ const tierName = (tier: string) =>
     catalog: "Вне топа-150",
   })[tier] || tier;
 const rankLabel = (rank: number | null) => (rank ? `#${rank}` : "Без места");
-function note(plan: { levelId: number | ""; percent: number }) {
+function selectLevel(plan: Plan) {
+  const level = data.value?.levels.find((level) => level.id === plan.levelId);
+  plan.listPercent = level?.listPercent ?? 50;
+  plan.endPercent = level?.endPercent ?? 100;
+}
+function note(plan: Plan) {
   if (!source.value || !plan.levelId) return "";
   const level = source.value.levels.find((l) => l.id === plan.levelId)!;
   if (props.entityType === "players") {
@@ -107,8 +126,8 @@ function note(plan: { levelId: number | ""; percent: number }) {
         progressPosition(
           h,
           plan.percent,
-          level.listPercent,
-          level.endPercent,
+          plan.listPercent ?? level.listPercent,
+          plan.endPercent ?? level.endPercent,
         ) === null
       )
         return "Прогресс ниже лист-процента, нет данных процентов или условная позиция хуже 150.";
@@ -142,7 +161,7 @@ function note(plan: { levelId: number | ""; percent: number }) {
       <div v-for="(plan, i) in plans" :key="plan.key" class="plan-row">
         <label
           >Уровень {{ i + 1
-          }}<select v-model="plan.levelId">
+          }}<select v-model="plan.levelId" @change="selectLevel(plan)">
             <option value="">Выбери уровень</option>
             <option
               v-for="level in candidates"
@@ -171,6 +190,26 @@ function note(plan: { levelId: number | ""; percent: number }) {
         >
           <AppIcon name="close" />
         </button>
+        <div
+          v-if="entityType === 'players' && plan.levelId && plan.percent < 100"
+          class="threshold-controls"
+        >
+          <label
+            >Лист-процент t<input
+              v-model.number="plan.listPercent"
+              type="number"
+              min="0.01"
+              max="99.99"
+              step="0.01" /></label
+          ><label
+            >Конец уровня T<input
+              v-model.number="plan.endPercent"
+              type="number"
+              min="0.01"
+              max="100"
+              step="0.01" /></label
+          ><span>Пороги изменяются только в этом сценарии.</span>
+        </div>
         <p v-if="note(plan)" class="plan-note">{{ note(plan) }}</p>
       </div>
       <button
@@ -220,6 +259,21 @@ function note(plan: { levelId: number | ""; percent: number }) {
   </section>
 </template>
 <style scoped lang="scss">
+.threshold-controls {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  align-items: end;
+  label {
+    flex: 1;
+    min-width: 140px;
+  }
+  span {
+    font-size: 13px;
+    color: var(--muted);
+  }
+}
 .forecast {
   margin-top: 36px;
 }

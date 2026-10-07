@@ -20,7 +20,7 @@ const players = computed(
 const extras = computed(
   () =>
     data.value?.extras
-      .filter((e) => e.districtId === id)
+      .filter((e) => e.districtId === id && !e.deletedAt)
       .toSorted((a, b) => compareCompletionDates(a.achievedAt, b.achievedAt)) ??
     [],
 );
@@ -96,7 +96,8 @@ useHead({ title: () => `${district.value?.name} · СПб Demonlist` });
       <span>Хардест района</span
       ><NuxtLink v-if="hardest" :to="`/levels/${hardest.id}`">{{
         hardest.name
-      }}</NuxtLink>
+      }}</NuxtLink
+      ><span v-if="hardest?.localRank">#{{ hardest.localRank }} в СПб</span>
     </div>
     <dl class="profile-stats">
       <div>
@@ -155,7 +156,7 @@ useHead({ title: () => `${district.value?.name} · СПб Demonlist` });
                   p.name
                 }}</strong></span
               ><span class="member-rating"
-                ><span>#{{ p.rank }}</span
+                ><span>{{ p.rank === null ? "—" : `#${p.rank}` }}</span
                 >{{ formatScore(p.score)
                 }}<AppIcon name="chevron" /></span></NuxtLink
             ><EntityEditButton

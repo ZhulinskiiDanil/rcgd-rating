@@ -86,9 +86,7 @@ export function migrateListControls(connection: Database.Database) {
             `ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`,
           );
     }
-    connection.exec(
-      "CREATE UNIQUE INDEX IF NOT EXISTS account_nickname ON accounts(nickname COLLATE NOCASE) WHERE nickname!=''",
-    );
+    connection.exec("DROP INDEX IF EXISTS account_nickname");
     connection.exec(
       "UPDATE levels SET status='extended' WHERE status='main' AND localRank BETWEEN 76 AND 150",
     );

@@ -10,6 +10,9 @@ const apiLevel = z.object({
   ingame_id: z.number().nullable().optional(),
   list_percent: z.number().nullable().optional(),
   length: z.number().nullable().optional(),
+  game_version: z
+    .union([z.number().positive(), z.string().regex(/^\d+(?:\.\d+)*$/)])
+    .nullish(),
   holder: z.string().nullish(),
   verification_url: z.string().nullish(),
 });
@@ -38,6 +41,20 @@ export const SHEET =
   "https://docs.google.com/spreadsheets/d/1vSOs24s1nX9hWiwoy8qWSWh28CUKODectnBz14Vpx5M/export?format=csv&gid=626858444";
 export const sheetTab = (name: string) =>
   `https://docs.google.com/spreadsheets/d/1vSOs24s1nX9hWiwoy8qWSWh28CUKODectnBz14Vpx5M/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(name)}`;
+
+// The list endpoint omits game_version; it is available only in level details.
+export async function fetchGameVersion(id: number): Promise<string> {
+  const detail = z
+    .object({
+      id: z.literal(id),
+      game_version: z.union([
+        z.number().positive(),
+        z.string().regex(/^\d+(?:\.\d+)*$/),
+      ]),
+    })
+    .parse(await apiData("/level/classic/get", { id }));
+  return String(detail.game_version);
+}
 export interface SheetEntry {
   name: string;
   results: { name: string; percent: number }[];

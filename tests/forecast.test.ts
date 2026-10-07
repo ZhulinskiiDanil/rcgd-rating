@@ -84,6 +84,48 @@ function fixture(): DataSet {
   return data;
 }
 describe("forecast", () => {
+  it("allows a district to plan a deleted extra without restoring the deleted source entry", () => {
+    const data = fixture();
+    data.extras.push({
+      id: 1,
+      districtId: 1,
+      levelId: 1,
+      note: "",
+      achievedAt: null,
+      deletedAt: "2026-10-07T00:00:00Z",
+    });
+    const result = forecastRating(data, "districts", 1, [
+      { levelId: 1, percent: 100 },
+    ]);
+    expect(result.after.top[0]).toMatchObject({ levelId: 1, position: 1 });
+    expect(data.extras).toHaveLength(1);
+    expect(data.extras[0]?.deletedAt).toBe("2026-10-07T00:00:00Z");
+  });
+  it("calculates a new player without changing existing accounts or achievements", () => {
+    const data = fixture(),
+      snapshot = JSON.stringify(data);
+    const result = forecastRating(data, "players", 0, [
+      { levelId: 1, percent: 100 },
+    ]);
+    expect(result.before.score).toBe(150);
+    expect(result.after.top[0]).toMatchObject({ levelId: 1, position: 1 });
+    expect(result.after.score).toBeLessThan(150);
+    expect(JSON.stringify(data)).toBe(snapshot);
+  });
+  it("uses scenario t and T without overwriting the actual thresholds or shifting levels for progress", () => {
+    const data = fixture();
+    const result = forecastRating(data, "players", 1, [
+      { levelId: 1, percent: 60, listPercent: 60, endPercent: 90 },
+    ]);
+    expect(result.after.top[0]?.position).toBeCloseTo(4);
+    expect(result.changes).toEqual([]);
+    expect(data.levels[0]?.listPercent).toBe(50);
+    expect(() =>
+      forecastRating(data, "players", 1, [
+        { levelId: 1, percent: 60, listPercent: 90, endPercent: 60 },
+      ]),
+    ).toThrow("0 < t < T");
+  });
   it("ignores stale out-of-list positions from an older catalog", () => {
     const data = fixture();
     data.levels.push({ ...level(200, false), localRank: 180 });

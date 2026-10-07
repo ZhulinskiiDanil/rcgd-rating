@@ -7,7 +7,9 @@ const mainLevels = computed(
       .filter((l) => l.status === "main")
       .sort((a, b) => a.localRank! - b.localRank!) ?? [],
 );
-const leaders = computed(() => data.value?.players.slice(0, 5) ?? []);
+const leaders = computed(
+  () => data.value?.players.filter((p) => !p.hidden).slice(0, 5) ?? [],
+);
 const victors = computed(() =>
   Object.fromEntries(
     mainLevels.value
@@ -17,7 +19,7 @@ const victors = computed(() =>
 );
 const districts = computed(
   () =>
-    data.value?.districts.filter((d) => d.completionCount > 0).slice(0, 3) ??
+    data.value?.districts.filter((d) => d.completionCount > 0).slice(0, 6) ??
     [],
 );
 useHead({ title: "СПб Demonlist — демоны Санкт-Петербурга" });
@@ -52,7 +54,15 @@ useHead({ title: "СПб Demonlist — демоны Санкт-Петербур�
               ><UserAvatar :name="player.name" :url="player.avatar" /><span
                 class="leader-name"
                 :class="{ inactive: player.inactive }"
-                >{{ player.name }}<small>{{ player.top[0]?.name }}</small></span
+                >{{ player.name
+                }}<small
+                  >{{ player.top[0]?.name
+                  }}{{
+                    player.top[0]?.kind === "progress"
+                      ? ` ${player.top[0].percent}%`
+                      : ""
+                  }}</small
+                ></span
               ><span class="leader-score">{{
                 player.score.toFixed(2)
               }}</span></NuxtLink

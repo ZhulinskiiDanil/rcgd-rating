@@ -1,4 +1,4 @@
-import { all, db } from "../database";
+import { all, db, one } from "../database";
 import type { Level, RecordEntry } from "../../shared/types/domain";
 import type { GlobalRecord } from "./sources";
 import {
@@ -8,7 +8,7 @@ import {
   youtubeVideoUrl,
   type VideoDateResult,
 } from "./video-date";
-import { logChange } from "./changes";
+import { logChange, mutate } from "./changes";
 type DateCandidate = Pick<
   RecordEntry,
   | "manualPercent"
@@ -19,16 +19,28 @@ type DateCandidate = Pick<
   | "achievedAt"
   | "dateSource"
   | "sourceVideo"
+  | "deletedAt"
 >;
 let nextBatch = 0;
 
 export async function prepareRecordDates(
   incoming: Map<number, GlobalRecord[]>,
+  refresh = false,
 ) {
-  const records = all<RecordEntry>("SELECT * FROM records");
-  const globalIds = new Map(
-    all<Level>("SELECT * FROM levels").map((level) => [level.id, level.gdlId]),
+  const records = all<RecordEntry>(
+    "SELECT r.* FROM records r JOIN players p ON p.id=r.playerId JOIN levels l ON l.id=r.levelId WHERE p.deletedAt IS NULL AND l.deletedAt IS NULL AND l.listExcluded=0",
   );
+  const playerIds = new Set(
+    all<{ id: number }>("SELECT id FROM players WHERE deletedAt IS NULL").map(
+      (player) => player.id,
+    ),
+  );
+  const globalIds = new Map(
+    all<Level>(
+      "SELECT * FROM levels WHERE deletedAt IS NULL AND listExcluded=0",
+    ).map((level) => [level.id, level.gdlId]),
+  );
+  const knownGlobalIds = new Set(globalIds.values());
   const candidates = new Map<string, DateCandidate>(
     records.map((record) => [
       `${record.playerId}:${globalIds.get(record.levelId) ?? `local-${record.levelId}`}`,
@@ -36,6 +48,7 @@ export async function prepareRecordDates(
     ]),
   );
   for (const [playerId, rows] of incoming) {
+    if (!playerIds.has(playerId)) continue;
     const best = new Map<number, GlobalRecord>();
     for (const row of rows)
       if (
@@ -45,9 +58,11 @@ export async function prepareRecordDates(
       )
         best.set(row.level.id, row);
     for (const row of best.values()) {
+      if (!knownGlobalIds.has(row.level.id)) continue;
       const key = `${playerId}:${row.level.id}`;
       const previous = candidates.get(key);
       if (
+        previous?.deletedAt ||
         previous?.dateSource === "manual" ||
         (previous?.importedPercent ?? 0) > row.percent
       )
@@ -61,6 +76,7 @@ export async function prepareRecordDates(
         achievedAt: previous?.achievedAt ?? null,
         dateSource: previous?.dateSource ?? null,
         sourceVideo: previous?.sourceVideo ?? "",
+        deletedAt: previous?.deletedAt ?? null,
       });
     }
   }
@@ -68,14 +84,16 @@ export async function prepareRecordDates(
     ...new Set(
       [...candidates.values()].flatMap((record) => {
         const url = youtubeVideoUrl(recordVideoUrl(record));
-        return record.active !== 0 &&
+        return !record.deletedAt &&
+          record.active !== 0 &&
           record.dateSource !== "manual" &&
           url &&
-          !(
-            record.dateSource === "video" &&
-            record.achievedAt &&
-            record.sourceVideo === url
-          )
+          (refresh ||
+            !(
+              record.dateSource === "video" &&
+              record.achievedAt &&
+              record.sourceVideo === url
+            ))
           ? [url]
           : [];
       }),
@@ -93,7 +111,7 @@ export async function prepareRecordDates(
     Array.from({ length: Math.min(3, pending.length) }, async () => {
       while (next < pending.length) {
         const url = pending[next++]!;
-        dates.set(url, await lookupVideoDate(url));
+        dates.set(url, await lookupVideoDate(url, refresh));
       }
     }),
   );
@@ -108,11 +126,12 @@ export function refreshRecordDates(
   dates: Map<string, VideoDateResult>,
   actorId: number | null = null,
 ) {
+  let updated = 0;
   const update = db().prepare(
     "UPDATE records SET achievedAt=?,dateSource=?,sourceVideo=?,updatedAt=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?",
   );
   for (const record of all<RecordEntry>(
-    "SELECT * FROM records WHERE active=1 AND (dateSource IS NULL OR dateSource!='manual')",
+    "SELECT r.* FROM records r JOIN players p ON p.id=r.playerId JOIN levels l ON l.id=r.levelId WHERE r.active=1 AND r.deletedAt IS NULL AND p.deletedAt IS NULL AND l.deletedAt IS NULL AND l.listExcluded=0 AND (r.dateSource IS NULL OR r.dateSource!='manual')",
   )) {
     const fields = automaticDateFields(record, dates);
     if (
@@ -127,6 +146,7 @@ export function refreshRecordDates(
       fields.sourceVideo,
       record.id,
     );
+    updated++;
     if (fields.achievedAt !== record.achievedAt)
       logChange(
         "record-date",
@@ -136,5 +156,42 @@ export function refreshRecordDates(
         { playerId: record.playerId, levelId: record.levelId, ...fields },
         actorId,
       );
+  }
+  return updated;
+}
+
+export async function synchronizeVideoDates(actorId: number | null = null) {
+  const now = Date.now();
+  const acquired = db().transaction(() => {
+    const lock = one<{ value: string }>(
+      "SELECT value FROM settings WHERE key='videoDateSyncLock'",
+    );
+    if (lock && Number(lock.value) > now) return false;
+    db()
+      .prepare(
+        "INSERT OR REPLACE INTO settings(key,value) VALUES ('videoDateSyncLock',?)",
+      )
+      .run(String(now + 10 * 60 * 1000));
+    return true;
+  })();
+  if (!acquired) throw new Error("Синхронизация дат уже выполняется");
+  try {
+    const prepared = await prepareRecordDates(new Map(), true);
+    return mutate("Синхронизация дат видео", actorId, () => {
+      const updated = refreshRecordDates(prepared.dates, actorId);
+      db()
+        .prepare(
+          "INSERT OR REPLACE INTO settings(key,value) VALUES ('videoDatesUpdatedAt',?)",
+        )
+        .run(new Date().toISOString());
+      return {
+        updated,
+        checked: prepared.dates.size,
+        unavailable: prepared.unavailable,
+        deferred: prepared.deferred,
+      };
+    });
+  } finally {
+    db().prepare("DELETE FROM settings WHERE key='videoDateSyncLock'").run();
   }
 }

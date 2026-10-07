@@ -19,7 +19,25 @@ const isBusy = computed(() => formBusy.value);
 const error = ref("");
 const success = ref("");
 const search = ref("");
-const page = ref(1);
+const page = ref(1),
+  deleted = ref(false);
+const restorable = computed(() =>
+  ["players", "levels", "records", "extras"].includes(props.resource),
+);
+const isDeleted = (row: Record<string, unknown>) =>
+  !!row.deletedAt || (props.resource === "levels" && !!row.listExcluded);
+async function restore(row: Record<string, unknown>) {
+  try {
+    await $fetch("/api/admin/restore", {
+      method: "POST",
+      body: { resource: props.resource, id: Number(row.id) },
+    });
+    await refreshNuxtData();
+    saved();
+  } catch (cause: any) {
+    error.value = cause.data?.message || "Не удалось восстановить";
+  }
+}
 watch(
   () => props.resource,
   () => {
@@ -30,18 +48,21 @@ watch(
     success.value = "";
     search.value = "";
     page.value = 1;
+    deleted.value = false;
   },
 );
-watch(search, () => {
+watch([search, deleted], () => {
   page.value = 1;
 });
 const filtered = computed(() =>
-  props.rows.filter((row) =>
-    props.columns.some((column) =>
-      String(cellValue(row, column.key))
-        .toLowerCase()
-        .includes(search.value.trim().toLowerCase()),
-    ),
+  props.rows.filter(
+    (row) =>
+      (!restorable.value || isDeleted(row) === deleted.value) &&
+      props.columns.some((column) =>
+        String(cellValue(row, column.key))
+          .toLowerCase()
+          .includes(search.value.trim().toLowerCase()),
+      ),
   ),
 );
 const rows = computed(() =>
@@ -105,6 +126,9 @@ function cellValue(row: Record<string, unknown>, key: string) {
           type="search"
           placeholder="Поиск по записям"
       /></label>
+      <label v-if="restorable"
+        ><input v-model="deleted" type="checkbox" /> Удалённые</label
+      >
       <span class="record-count"
         >Найдено: <b>{{ filtered.length }}</b></span
       >
@@ -171,18 +195,31 @@ function cellValue(row: Record<string, unknown>, key: string) {
             </td>
             <td class="action-cell">
               <div>
-                <button :disabled="isBusy" @click="edit(row)">Изменить</button
+                <button
+                  v-if="!isDeleted(row)"
+                  :disabled="isBusy"
+                  @click="edit(row)"
+                >
+                  Изменить</button
                 ><EntityDeleteButton
                   v-if="
-                    resource === 'levels' ||
-                    resource === 'records' ||
-                    resource === 'extras'
+                    !isDeleted(row) &&
+                    (resource === 'levels' ||
+                      resource === 'records' ||
+                      resource === 'extras' ||
+                      resource === 'players')
                   "
                   :resource="resource"
                   :entity-id="Number(row.id)"
                   :disabled="isBusy"
                   @saved="saved"
-                />
+                /><button
+                  v-if="restorable && isDeleted(row)"
+                  :disabled="isBusy"
+                  @click="restore(row)"
+                >
+                  Восстановить
+                </button>
               </div>
             </td>
           </tr>

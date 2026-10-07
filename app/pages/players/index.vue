@@ -18,6 +18,8 @@ const filteredPlayers = computed(
   () =>
     data.value?.players.filter(
       (p) =>
+        !p.hidden &&
+        !p.deletedAt &&
         p.name.toLowerCase().includes(search.value.trim().toLowerCase()) &&
         (!district.value || p.districtId === Number(district.value)) &&
         (!region.value || districts.value.some((d) => d.id === p.districtId)),
@@ -70,7 +72,10 @@ useHead({ title: "Рейтинг игроков · СПб Demonlist" });
     <nav class="ranking-tabs" aria-label="Вид рейтинга">
       <NuxtLink to="/players" aria-current="page"
         ><AppIcon name="users" /> Игроки
-        <span>{{ data?.players.length ?? 0 }}</span></NuxtLink
+        <span>{{
+          data?.players.filter((player) => !player.hidden && !player.deletedAt)
+            .length ?? 0
+        }}</span></NuxtLink
       >
       <NuxtLink to="/districts"><AppIcon name="map" /> Районы</NuxtLink>
     </nav>
@@ -127,7 +132,10 @@ useHead({ title: "Рейтинг игроков · СПб Demonlist" });
             <tr
               v-for="p in players"
               :key="p.id"
-              :class="{ podium: p.rank <= 3, 'inactive-player': p.inactive }"
+              :class="{
+                podium: p.rank !== null && p.rank <= 3,
+                'inactive-player': p.inactive,
+              }"
             >
               <td>
                 <span class="rank" :class="'rank-' + p.rank">{{ p.rank }}</span>
@@ -139,9 +147,11 @@ useHead({ title: "Рейтинг игроков · СПб Demonlist" });
                       p.name
                     }}</span></NuxtLink
                   >
-                  <span v-if="p.inactive" class="inactive-label"
-                    >Неактивен</span
-                  >
+                  <span v-if="p.role" class="role-label">{{
+                    p.role === "head-admin"
+                      ? "Главный администратор"
+                      : "Администратор"
+                  }}</span>
                   <EntityEditButton
                     resource="players"
                     :entity-id="p.id"
@@ -210,12 +220,12 @@ useHead({ title: "Рейтинг игроков · СПб Demonlist" });
   </section>
 </template>
 <style scoped lang="scss">
-.inactive-player .player-link,
-.inactive-label {
+.inactive-player .player-link {
   color: var(--danger);
 }
-.inactive-label {
+.role-label {
   font-size: 12px;
+  color: var(--muted);
 }
 .entity-name {
   display: flex;

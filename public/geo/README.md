@@ -17,12 +17,22 @@ rel(176095)->.lo;
 out geom;
 ```
 
-To regenerate from the downloaded JSON response:
+The Gulf of Finland is clipped to real sea shorelines from the OSM-derived [simplified land polygons in EPSG:3857](https://osmdata.openstreetmap.de/data/land-polygons.html). Lake Ladoga is subtracted using its complete water multipolygon (including island holes), currently [relation 21149039](https://www.openstreetmap.org/relation/21149039). Coastlines and lake data were retrieved on 2026-10-07. The lake snapshot timestamp and source URL are recorded in `districts.json`. Lake query:
+
+```text
+[out:json][timeout:90];
+rel["name:en"="Lake Ladoga"]["natural"="water"];
+out geom;
+```
+
+To regenerate from the downloaded JSON responses and [land polygon ZIP](https://osmdata.openstreetmap.de/download/simplified-land-polygons-complete-3857.zip):
 
 ```sh
 node scripts/build-district-map.mjs path/to/overpass.json
+python -m pip install shapely pyshp
+python scripts/clip-district-map.py path/to/overpass.json path/to/simplified-land-polygons-complete-3857.zip path/to/ladoga-overpass.json
 ```
 
-The generator projects coordinates to Web Mercator, simplifies each shared OSM way once at 0.25 units in the 1000-unit-wide overview, assembles closed outer and inner rings and emits compound SVG paths with even-odd filling. Shared boundaries therefore retain the same simplified vertices. Small rings that collapse to fewer than three unique points are omitted. Boundaries include administrative water areas from OSM, not just shorelines. This is a community ranking map, not a cadastral or navigation map.
+The first generator projects coordinates to Web Mercator, simplifies each shared OSM way once at 0.25 units in the 1000-unit-wide overview, assembles closed outer and inner rings and emits compound SVG paths with even-odd filling. The second intersects these geometries with sea land polygons and subtracts Lake Ladoga water, preserving islands. Water is removed from the actual interactive paths, not covered by a decorative overlay. Shared inland boundaries therefore retain the same vertices. Features smaller than 0.01 square map units and rings collapsing to fewer than three unique points are omitted. The Python dependencies are needed only to regenerate data, not to run or build the Nuxt application. This is a community ranking map, not a cadastral or navigation map.
 
 Only this derived geographic dataset is licensed under ODbL; the license does not change the licensing of the surrounding application code.

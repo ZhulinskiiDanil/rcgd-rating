@@ -29,7 +29,11 @@ useHead({ title: "Будущий рейтинг · СПб Demonlist" });
       ><label
         >{{ type === "players" ? "Игрок" : "Район"
         }}<select v-model.number="entityId">
-          <option :value="0">Выбери участника</option>
+          <option :value="0">
+            {{
+              type === "players" ? "Новый игрок без достижений" : "Выбери район"
+            }}
+          </option>
           <option
             v-for="entity in entities"
             :key="entity.id"
@@ -41,7 +45,10 @@ useHead({ title: "Будущий рейтинг · СПб Demonlist" });
       >
     </div>
     <ForecastCalculator
-      v-if="entityId && entities.some((e) => e.id === entityId)"
+      v-if="
+        (type === 'players' && entityId === 0) ||
+        entities.some((e) => e.id === entityId)
+      "
       :entity-type="type"
       :entity-id="entityId"
     />

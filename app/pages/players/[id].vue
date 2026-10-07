@@ -5,13 +5,17 @@ import {
   hasLevelPage,
   hypotheticalPosition,
   listTier,
-  progressPosition,
+  withinListBoundary,
+  listBoundary,
 } from "#shared/utils/rating";
-import { formatScore } from "#shared/utils/presentation";
+import { formatScore, formatPosition } from "#shared/utils/presentation";
 import { regionalFirstVictors } from "#shared/utils/victors";
+import { recordVideoUrl } from "#shared/utils/record-video";
 const route = useRoute(),
   id = Number(route.params.id);
 const { data } = await useCatalog();
+const boundary = computed(() => listBoundary(data.value?.levels ?? []));
+const { data: session } = await useAccount();
 const player = computed(() => data.value?.players.find((p) => p.id === id));
 if (!player.value)
   throw createError({ statusCode: 404, statusMessage: "Игрок не найден" });
@@ -31,13 +35,20 @@ watch(
 const levelMap = computed(
   () => new Map(data.value?.levels.map((level) => [level.id, level]) ?? []),
 );
+const orderedLevels = computed(() =>
+  data.value
+    ? completedLevels({
+        ...data.value,
+        records: data.value.records.map((record) => ({ ...record, note: "" })),
+      })
+    : [],
+);
 const eligibleProgressIds = computed(() => {
   if (!data.value) return new Set<number>();
   const catalog = {
     ...data.value,
     records: data.value.records.map((record) => ({ ...record, note: "" })),
   };
-  const orderedLevels = completedLevels(catalog);
   return new Set(
     catalog.records
       .filter((record) => {
@@ -46,22 +57,15 @@ const eligibleProgressIds = computed(() => {
         if (
           record.playerId !== id ||
           !level ||
+          !withinListBoundary(level, data.value!.levels, boundary.value) ||
           level.globalRank === null ||
           level.globalRank > 150 ||
           progress <= 0 ||
           progress >= 100
         )
           return false;
-        const position = hypotheticalPosition(level, orderedLevels);
-        return (
-          position !== null &&
-          progressPosition(
-            position,
-            progress,
-            level.listPercent,
-            level.endPercent,
-          ) !== null
-        );
+        const position = hypotheticalPosition(level, orderedLevels.value);
+        return position !== null && position <= 150;
       })
       .map((record) => record.id),
   );
@@ -85,8 +89,12 @@ const allRecords = computed(
         return (
           Number(listTier(first) === "legacy") -
             Number(listTier(second) === "legacy") ||
-          (first.localRank ?? first.globalRank ?? Infinity) -
-            (second.localRank ?? second.globalRank ?? Infinity) ||
+          (first.localRank ??
+            hypotheticalPosition(first, orderedLevels.value) ??
+            Infinity) -
+            (second.localRank ??
+              hypotheticalPosition(second, orderedLevels.value) ??
+              Infinity) ||
           first.name.localeCompare(second.name)
         );
       }) ?? [],
@@ -114,19 +122,42 @@ const legacyCount = computed(
       (record) => listTier(levelMap.value.get(record.levelId)!) === "legacy",
     ).length,
 );
-const progresses = computed(() => eligibleProgressIds.value.size);
+const progresses = computed(
+  () => allRecords.value.filter((record) => percent(record) < 100).length,
+);
+const hardestResult = computed(() =>
+  player.value?.top.find((result) => result.levelId !== null),
+);
 const hardest = computed(() =>
-  completed.value[0] ? levelMap.value.get(completed.value[0].levelId) : null,
+  hardestResult.value?.levelId
+    ? levelMap.value.get(hardestResult.value.levelId)
+    : completed.value[0]
+      ? levelMap.value.get(completed.value[0].levelId)
+      : null,
+);
+const hardestPosition = computed(() =>
+  hardest.value?.status === "legacy"
+    ? null
+    : hardest.value
+      ? (hardest.value.localRank ??
+        hypotheticalPosition(hardest.value, orderedLevels.value))
+      : null,
 );
 const records = computed(() =>
   allRecords.value.filter((record) => {
     const level = levelMap.value.get(record.levelId)!;
     return (
-      (tier.value === "all" || listTier(level) === tier.value) &&
+      (tier.value === "all" ||
+        (listTier(level) ??
+          ((hypotheticalPosition(level, orderedLevels.value) ?? Infinity) <= 75
+            ? "main"
+            : "extended")) === tier.value) &&
       (outcome.value === "all" ||
-        (outcome.value === "completed"
-          ? percent(record) === 100
-          : percent(record) < 100))
+        (outcome.value === "first"
+          ? firstRecordIds.value.includes(record.id)
+          : outcome.value === "completed"
+            ? percent(record) === 100
+            : percent(record) < 100))
     );
   }),
 );
@@ -153,6 +184,49 @@ const districtHasPage = computed(
       playerDistrict.value.legacyCompletionCount >
       0,
 );
+const firstRegionLabel = computed(() =>
+  playerDistrict.value?.region === "spb"
+    ? "Первый в Санкт-Петербурге"
+    : playerDistrict.value?.region === "lo"
+      ? "Первый в Ленинградской области"
+      : "Первый в регионе",
+);
+const profileLevels = computed(() =>
+  records.value.map((record) => levelMap.value.get(record.levelId)!),
+);
+const personalResults = computed(() =>
+  Object.fromEntries(
+    records.value.map((record) => {
+      const level = levelMap.value.get(record.levelId)!;
+      return [
+        record.levelId,
+        {
+          percent: percent(record),
+          position:
+            level.status === "legacy"
+              ? null
+              : (level.localRank ??
+                hypotheticalPosition(level, orderedLevels.value)),
+          recordId: record.id,
+          video: recordVideoUrl(record),
+          achievedAt: record.achievedAt,
+          isFirstRk: !!record.isFirstRk,
+        },
+      ];
+    }),
+  ),
+);
+const completedLevelIds = computed(
+  () => new Set(completed.value.map((record) => record.levelId)),
+);
+const firstLevelIds = computed(
+  () =>
+    new Set(
+      allRecords.value
+        .filter((record) => firstRecordIds.value.includes(record.id))
+        .map((record) => record.levelId),
+    ),
+);
 useHead({ title: () => `${player.value?.name} · СПб Demonlist` });
 </script>
 <template>
@@ -166,12 +240,24 @@ useHead({ title: () => `${player.value?.name} · СПб Demonlist` });
         :entity-id="player.id"
         label="Редактировать игрока"
       />
+      <NuxtLink
+        v-if="session?.user?.playerId === player.id"
+        to="/account/settings"
+        class="button secondary"
+        >Настройки профиля</NuxtLink
+      >
     </header>
     <div class="identity">
       <UserAvatar :name="player.name" :url="player.avatar" size="large" />
       <div class="identity-text">
         <h1 :class="{ inactive: player.inactive }">{{ player.name }}</h1>
-        <p v-if="player.inactive" class="inactive-note">Неактивный игрок</p>
+        <p v-if="player.role" class="role-label">
+          {{
+            player.role === "head-admin"
+              ? "Главный администратор"
+              : "Администратор"
+          }}
+        </p>
         <div class="district">
           <AppIcon name="map" /><NuxtLink
             v-if="player.districtId && districtHasPage"
@@ -192,15 +278,22 @@ useHead({ title: () => `${player.value?.name} · СПб Demonlist` });
     <p v-if="player.bio" class="bio">{{ player.bio }}</p>
     <div class="hardest-panel">
       <span>Хардест</span
-      ><NuxtLink v-if="hardest" :to="`/levels/${hardest.id}`">{{
-        hardest.name
-      }}</NuxtLink
-      ><strong v-else>Нет прохождений</strong>
+      ><NuxtLink
+        v-if="hardest && hasLevelPage(hardest)"
+        :to="`/levels/${hardest.id}`"
+        >{{ hardest.name }}</NuxtLink
+      ><strong v-else-if="hardest">{{ hardest.name }}</strong
+      ><strong v-else>Нет результатов</strong
+      ><span v-if="hardestResult?.kind === 'progress'"
+        >{{ formatPosition(hardestResult.percent) }}%</span
+      ><span v-if="hardestPosition">#{{ hardestPosition }} в СПб</span>
     </div>
     <dl class="profile-stats">
       <div>
         <dt>Место в рейтинге</dt>
-        <dd class="accent">#{{ player.rank }}</dd>
+        <dd class="accent">
+          {{ player.rank === null ? "Без места" : "#" + player.rank }}
+        </dd>
       </div>
       <div>
         <dt>Рейтинговый балл</dt>
@@ -214,13 +307,9 @@ useHead({ title: () => `${player.value?.name} · СПб Demonlist` });
           {{ extendedCount }}</small
         >
       </div>
-      <div>
+      <div v-if="legacyCount">
         <dt>Legacy list</dt>
         <dd>{{ legacyCount }}</dd>
-      </div>
-      <div>
-        <dt>Прогрессы в топ-150</dt>
-        <dd>{{ progresses }}</dd>
       </div>
     </dl>
     <div class="section-heading">
@@ -245,6 +334,9 @@ useHead({ title: () => `${player.value?.name} · СПб Demonlist` });
           <option value="all">Все результаты</option>
           <option value="completed">Пройденные уровни</option>
           <option value="progress">Прогрессы</option>
+          <option v-if="playerDistrict" value="first">
+            {{ firstRegionLabel }}
+          </option>
         </select></label
       >
       <label
@@ -257,27 +349,29 @@ useHead({ title: () => `${player.value?.name} · СПб Demonlist` });
       >
       <p>
         <span class="complete-key">Пройден</span
-        ><span class="first-key">Первый в городе или области</span>
+        ><span class="first-key">{{ firstRegionLabel }}</span
+        ><span v-if="progresses" class="progress-key"
+          >Прогрессы: {{ progresses }}</span
+        >
       </p>
     </div>
     <div class="records-panel panel">
-      <RecordsTable
-        :records="records"
-        :players="data.players"
-        :levels="data.levels"
-        highlight-completions
-        :first-record-ids="firstRecordIds"
+      <LevelTable
+        :levels="profileLevels"
+        :results="personalResults"
+        :completed="completedLevelIds"
+        :first="firstLevelIds"
+        :first-region-label="firstRegionLabel"
       />
     </div>
     <RatingHistory :id="id" type="players" />
   </section>
 </template>
 <style scoped lang="scss">
-.inactive,
-.inactive-note {
+.inactive {
   color: var(--danger);
 }
-.inactive-note {
+.role-label {
   font-size: 14px;
   margin: 0 0 10px;
 }
@@ -413,7 +507,7 @@ useHead({ title: () => `${player.value?.name} · СПб Demonlist` });
 }
 .profile-stats {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   margin: 30px 0 0;
   padding: 23px 0;
   border-top: 1px solid var(--line);

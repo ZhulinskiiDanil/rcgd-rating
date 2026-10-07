@@ -7,12 +7,20 @@ import {
   type RecordDateFields,
 } from "../../services/video-date";
 import {
-  PERMISSIONS,
   type Permission,
   type Player,
-  type Level,
+  type RecordEntry,
 } from "../../../shared/types/domain";
-import { normalizedName } from "../../../shared/utils/rating";
+import { preserveImportedRecordsOnRebind } from "../../services/sync";
+import {
+  accountAdminPatchSchema,
+  applyAccountAdminPatch,
+} from "../../services/account-admin";
+import {
+  recordEditFields,
+  recordEditIsCurrent,
+  movedRecordTombstone,
+} from "../../services/record-edit";
 const id = z.number().int().positive();
 const optionalId = id.nullable().default(null);
 const text = z.string().trim().max(2000);
@@ -39,12 +47,18 @@ const schemas = {
     accountId: optionalId,
     avatarUrl: imageUrl.optional(),
     inactive: z.boolean().optional(),
+    hidden: z.boolean().optional(),
   }),
   levels: z.object({
     id: id.optional(),
     name: text.min(1).max(100),
     verifiedLocal: z.boolean(),
     thresholdName: text.nullable().default(null),
+    gdlId: optionalId.optional(),
+    globalRank: id.nullable().optional(),
+    listPercent: z.number().min(0.01).max(100).nullable().optional(),
+    endPercent: z.number().min(0.01).max(100).nullable().optional(),
+    thresholdSource: z.enum(["manual", "coreboard"]).nullable().optional(),
     creator: text.default(""),
     video: url.optional(),
     previewImage: imageUrl.optional(),
@@ -70,7 +84,7 @@ const schemas = {
     manualPercent: percent,
     manualVideo: url.default(""),
     active: z.boolean(),
-    note: text.default(""),
+    isFirstRk: z.boolean().optional(),
     achievedAt: date.optional(),
     dateSource: z.enum(["manual", "video"]).nullable().optional(),
     sourceVideo: z.string().max(2048).optional(),
@@ -84,12 +98,7 @@ const schemas = {
     note: text.default(""),
     achievedAt: date.default(null),
   }),
-  accounts: z.object({
-    id,
-    permissions: z.array(z.enum(PERMISSIONS)).optional(),
-    disabled: z.boolean().optional(),
-    avatarUrl: imageUrl.optional(),
-  }),
+  accounts: accountAdminPatchSchema.extend({ id }),
   news: z.object({ id: id.optional(), title: text.min(1).max(2000) }),
 };
 const permission: Record<keyof typeof schemas, Permission | "head-admin"> = {
@@ -130,23 +139,13 @@ export default defineEventHandler(async (event) => {
     : null;
   if (value.id && !before)
     throw createError({ statusCode: 404, message: "Запись не найдена" });
-  if (resource === "extras") {
-    const extra = schemas.extras.parse(value);
-    const level = one<Level>("SELECT * FROM levels WHERE id=?", extra.levelId);
-    if (
-      level?.status === "legacy" &&
-      (!before ||
-        before.levelId !== extra.levelId ||
-        before.districtId !== extra.districtId)
-    )
-      throw createError({
-        statusCode: 400,
-        message: "Новые прохождения для Legacy list не принимаются",
-      });
-  }
+  const previousRecord =
+    resource === "records" && before
+      ? (before as unknown as RecordEntry)
+      : null;
+  let preparedRecord: ReturnType<typeof recordEditFields> | undefined;
   if (resource === "records") {
     const record = schemas.records.parse(value);
-    const level = one<Level>("SELECT * FROM levels WHERE id=?", record.levelId);
     if (before?.deletedAt)
       throw createError({ statusCode: 409, message: "Рекорд удалён" });
     if (
@@ -160,14 +159,17 @@ export default defineEventHandler(async (event) => {
         statusCode: 409,
         message: "Этот рекорд удалён и защищён от повторного импорта",
       });
+    preparedRecord = recordEditFields(record, previousRecord);
     if (
-      level?.status === "legacy" &&
-      (!before || record.manualPercent !== before.manualPercent)
+      record.active &&
+      !Math.max(
+        preparedRecord.manualPercent ?? 0,
+        preparedRecord.importedPercent ?? 0,
+      )
     )
       throw createError({
         statusCode: 400,
-        message:
-          "Новые результаты для Legacy list не принимаются. Существующую запись можно исправить без изменения процента или удалить.",
+        message: "Для активного рекорда нужен ручной или глобальный результат",
       });
   }
   let recordDates: RecordDateFields | undefined;
@@ -188,14 +190,7 @@ export default defineEventHandler(async (event) => {
       };
     else
       recordDates = await resolveAutomaticDate({
-        manualPercent: record.manualPercent,
-        importedPercent: record.discardImported
-          ? null
-          : ((before?.importedPercent as number | null) ?? null),
-        manualVideo: record.manualVideo,
-        importedVideo: record.discardImported
-          ? ""
-          : ((before?.importedVideo as string) ?? ""),
+        ...preparedRecord!,
         achievedAt: (before?.achievedAt as string | null) ?? null,
         dateSource: before?.dateSource === "video" ? "video" : null,
         sourceVideo: (before?.sourceVideo as string) ?? "",
@@ -203,57 +198,24 @@ export default defineEventHandler(async (event) => {
   }
   try {
     return mutate("Изменение администрацией", user.id, () => {
+      if (
+        previousRecord &&
+        !recordEditIsCurrent(
+          previousRecord,
+          one<RecordEntry>(
+            "SELECT * FROM records WHERE id=?",
+            previousRecord.id,
+          ),
+        )
+      )
+        throw createError({
+          statusCode: 409,
+          message:
+            "Рекорд изменён или удалён во время сохранения. Обновите страницу и повторите правку.",
+        });
       if (resource === "accounts") {
         const a = schemas.accounts.parse(value);
-        const currentPermissions = JSON.parse(
-          String(before!.permissions),
-        ) as string[];
-        const permissions = [...new Set(a.permissions ?? currentPermissions)];
-        const disabled =
-          a.disabled === undefined
-            ? Number(before!.disabled)
-            : Number(a.disabled);
-        if (
-          before?.headAdmin &&
-          (disabled !== Number(before.disabled) ||
-            JSON.stringify([...permissions].sort()) !==
-              JSON.stringify([...currentPermissions].sort()))
-        )
-          throw createError({
-            statusCode: 400,
-            message: "Head-admin нельзя отключить или изменить через эту форму",
-          });
-        db()
-          .prepare(
-            "UPDATE accounts SET permissions=?,disabled=?,avatarUrl=? WHERE id=?",
-          )
-          .run(
-            JSON.stringify(permissions),
-            disabled,
-            a.avatarUrl ?? String(before!.avatarUrl),
-            a.id,
-          );
-        if (a.permissions !== undefined || a.disabled !== undefined)
-          logChange(
-            "permissions",
-            a.id,
-            "Изменены права аккаунта",
-            null,
-            { id: a.id, permissions, disabled },
-            user.id,
-            false,
-          );
-        if (a.avatarUrl !== undefined && a.avatarUrl !== before!.avatarUrl)
-          logChange(
-            "avatar",
-            a.id,
-            "Изменена аватарка аккаунта",
-            { avatarUrl: before!.avatarUrl },
-            { avatarUrl: a.avatarUrl },
-            user.id,
-            false,
-          );
-        return { id: a.id };
+        return applyAccountAdminPatch(a.id, a, user.id);
       }
       if (resource === "levels") {
         const level = schemas.levels.parse(value);
@@ -277,68 +239,47 @@ export default defineEventHandler(async (event) => {
       }
       if (resource === "players") {
         const p = schemas.players.parse(value);
-        if (
-          db()
-            .prepare("SELECT id,name FROM players WHERE id!=?")
-            .all(p.id ?? 0)
-            .some(
-              (row) =>
-                normalizedName((row as { name: string }).name) ===
-                normalizedName(p.name),
-            )
-        )
-          throw createError({
-            statusCode: 409,
-            message: "Этот ник игрока уже занят",
-          });
-        if (
-          p.id &&
-          before?.gdlId !== null &&
-          before?.gdlId !== p.gdlId &&
-          one(
-            "SELECT id FROM records WHERE playerId=? AND importedId IS NOT NULL",
+        if (p.id && before?.gdlId !== p.gdlId)
+          preserveImportedRecordsOnRebind(
             p.id,
-          )
+            (before?.gdlId as number | null) ?? null,
+          );
+      }
+      const fields: Record<string, unknown> = { ...value };
+      delete fields.id;
+      if (resource === "levels") {
+        const level = schemas.levels.parse(value);
+        const t =
+          level.listPercent === undefined
+            ? before?.listPercent
+            : level.listPercent;
+        const T =
+          level.endPercent === undefined
+            ? before?.endPercent
+            : level.endPercent;
+        if (
+          (t == null) !== (T == null) ||
+          (t != null && Number(t) >= Number(T))
         )
           throw createError({
             statusCode: 400,
-            message:
-              "У игрока есть импортированные рекорды. Привязку глобального профиля нельзя менять без переноса этих данных.",
+            message: "Укажите оба порога: 0 < t < T ≤ 100",
           });
+        if (
+          (level.listPercent !== undefined &&
+            level.listPercent !== before?.listPercent) ||
+          (level.endPercent !== undefined &&
+            level.endPercent !== before?.endPercent)
+        )
+          fields.thresholdSource = "manual";
+        if (level.thresholdSource === null) fields.thresholdSource = null;
       }
-      if (
-        resource === "records" &&
-        before &&
-        (before.playerId !== body.playerId || before.levelId !== body.levelId)
-      )
-        throw createError({
-          statusCode: 400,
-          message:
-            "У существующего рекорда нельзя менять игрока и уровень; создайте новую запись",
-        });
-      const fields: Record<string, unknown> = { ...value };
-      delete fields.id;
       if (resource === "records") {
         const record = schemas.records.parse(value);
         delete fields.discardImported;
-        Object.assign(fields, recordDates);
+        Object.assign(fields, preparedRecord, recordDates);
         fields.updatedAt = new Date().toISOString();
-        if (
-          record.active &&
-          record.manualPercent === null &&
-          (!before?.importedPercent || record.discardImported)
-        )
-          throw createError({
-            statusCode: 400,
-            message:
-              "Для активного рекорда нужен ручной или глобальный результат",
-          });
         if (record.discardImported && record.id) {
-          db()
-            .prepare(
-              "UPDATE records SET importedPercent=NULL,importedId=NULL,importedVideo='',missing=0 WHERE id=?",
-            )
-            .run(record.id);
           logChange(
             "record-review",
             record.playerId,
@@ -379,6 +320,23 @@ export default defineEventHandler(async (event) => {
             )
             .run(...values).lastInsertRowid,
         );
+      if (previousRecord && resource === "records") {
+        const record = schemas.records.parse(value);
+        const tombstone = movedRecordTombstone(
+          previousRecord,
+          record.playerId,
+          record.levelId,
+          String(fields.updatedAt),
+        );
+        if (tombstone) {
+          const columns = Object.keys(tombstone);
+          db()
+            .prepare(
+              `INSERT INTO records(${columns.join(",")}) VALUES (${columns.map(() => "?").join(",")})`,
+            )
+            .run(...Object.values(tombstone));
+        }
+      }
       if (resource === "levels" && fields.ingameId && !before?.gdlId) {
         const duplicate = one<{ id: number }>(
           "SELECT id FROM levels WHERE ingameId=? AND id!=?",

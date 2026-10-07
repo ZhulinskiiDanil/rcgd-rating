@@ -8,7 +8,7 @@ export default defineNuxtConfig({
       google: { clientId: "", clientSecret: "", redirectURL: "" },
       discord: { clientId: "", clientSecret: "", redirectURL: "" },
     },
-    session: { maxAge: 60 * 60 * 24 * 7 },
+    session: { maxAge: 60 * 60 * 24 * 7, sessionHeader: false },
   },
   nitro: { preset: "node-server", externals: { external: ["better-sqlite3"] } },
   app: {

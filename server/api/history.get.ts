@@ -1,4 +1,5 @@
 import { all } from "../database";
+import { storedLevelNote } from "../services/list-events";
 export default defineEventHandler((event) => {
   const { type, id } = getQuery(event);
   if (
@@ -14,17 +15,31 @@ export default defineEventHandler((event) => {
       fromTier: string | null;
       toTier: string | null;
       createdAt: string;
+      note: string;
+      primaryId: number | null;
+      afterJson: string | null;
     }>(
-      "SELECT id,fromRank,toRank,fromTier,toTier,createdAt FROM levelHistory WHERE levelId=? ORDER BY id DESC LIMIT 100",
+      "SELECT h.id,h.fromRank,h.toRank,h.fromTier,h.toTier,h.note,h.createdAt,c.entityId AS primaryId,c.afterJson FROM levelHistory h LEFT JOIN changes c ON c.id=h.changeId AND c.kind='level' WHERE h.levelId=? ORDER BY h.id DESC LIMIT 100",
       Number(id),
-    );
+    ).map(({ primaryId, afterJson, ...row }) => ({
+      ...row,
+      note: row.note || storedLevelNote(Number(id), primaryId, afterJson),
+    }));
   return all<{
     id: number;
     score: number;
     rank: number | null;
     createdAt: string;
   }>(
-    "SELECT id,score,rank,createdAt FROM (SELECT id,score,rank,createdAt,LAG(rank) OVER (ORDER BY id) AS previousRank,ROW_NUMBER() OVER (ORDER BY id) AS entry FROM ratingHistory WHERE entityType=? AND entityId=?) WHERE entry=1 OR rank IS NOT previousRank ORDER BY id DESC LIMIT 100",
+    `SELECT id,score,rank,createdAt FROM (
+      SELECT id,score,rank,createdAt,LAG(rank) OVER (ORDER BY id) AS previousRank,ROW_NUMBER() OVER (ORDER BY id) AS entry
+      FROM ratingHistory WHERE entityType=? AND entityId=? AND (
+        rank IS NULL OR EXISTS (
+          SELECT 1 FROM json_each(CASE WHEN json_valid(results) THEN results ELSE '[]' END)
+          WHERE json_extract(value,'$.kind') IN ('completion','progress')
+        )
+      )
+    ) WHERE entry=1 OR rank IS NOT previousRank ORDER BY id DESC LIMIT 100`,
     String(type),
     Number(id),
   );

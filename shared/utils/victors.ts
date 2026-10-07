@@ -17,10 +17,12 @@ type CompletionRecord = Pick<
 > &
   Partial<Pick<RecordEntry, "deletedAt">>;
 export interface VictorData {
-  players: Pick<Player, "id" | "name" | "districtId">[];
+  players: (Pick<Player, "id" | "name" | "districtId"> &
+    Partial<Pick<Player, "deletedAt">>)[];
   districts: District[];
   records: CompletionRecord[];
-  extras?: Pick<DistrictExtra, "districtId" | "levelId" | "achievedAt">[];
+  extras?: (Pick<DistrictExtra, "districtId" | "levelId" | "achievedAt"> &
+    Partial<Pick<DistrictExtra, "deletedAt">>)[];
 }
 export interface Victor {
   playerId: number;
@@ -91,6 +93,7 @@ export function levelVictors(
     const player = players.get(record.playerId);
     if (
       !player ||
+      player.deletedAt ||
       (districtId !== undefined && player.districtId !== districtId)
     )
       continue;
@@ -134,6 +137,7 @@ export function regionalFirstVictors(
       const extraDates = (data.extras ?? [])
         .filter(
           (extra) =>
+            !extra.deletedAt &&
             extra.levelId === levelId &&
             districts.get(extra.districtId)?.region === region,
         )
@@ -166,7 +170,7 @@ export function firstLevelVictors(
 ): FirstLevelVictor {
   const knownVictors = levelVictors(data, levelId);
   const extras = (data.extras ?? []).filter(
-    (extra) => extra.levelId === levelId,
+    (extra) => !extra.deletedAt && extra.levelId === levelId,
   );
   const dates = [
     ...knownVictors.map((victor) => victor.achievedAt),

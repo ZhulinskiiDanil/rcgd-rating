@@ -9,8 +9,14 @@ export default defineEventHandler((event) => {
     "strict-origin-when-cross-origin",
   );
   setResponseHeader(event, "X-Frame-Options", "DENY");
-  if (event.path.startsWith("/api/"))
-    setResponseHeader(event, "Cache-Control", "no-store");
+  if (
+    event.path.startsWith("/api/") ||
+    event.path.startsWith("/auth/") ||
+    !event.path.split("?")[0]!.split("/").at(-1)!.includes(".")
+  ) {
+    setResponseHeader(event, "Cache-Control", "private, no-store");
+    setResponseHeader(event, "Vary", "Cookie");
+  }
   if (!["POST", "PUT", "PATCH", "DELETE"].includes(event.method)) return;
   const origin = getRequestHeader(event, "origin");
   const expected = process.env.APP_ORIGIN || getRequestURL(event).origin;
@@ -20,7 +26,10 @@ export default defineEventHandler((event) => {
       message: "Недопустимый источник запроса",
     });
   const limit =
-    event.method === "POST" && event.path.split("?")[0] === "/api/admin/media"
+    event.method === "POST" &&
+    ["/api/admin/media", "/api/account/avatar"].includes(
+      event.path.split("?")[0]!,
+    )
       ? MAX_IMAGE_BYTES
       : 65536;
   if (Number(getRequestHeader(event, "content-length") || 0) > limit)

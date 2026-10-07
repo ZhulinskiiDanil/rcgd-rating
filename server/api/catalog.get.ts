@@ -4,8 +4,18 @@ export default defineEventHandler(() => {
   const data = dataset();
   return {
     ...data,
+    levels: data.levels.filter((l) => !l.deletedAt),
+    extras: data.extras.filter(
+      (e) =>
+        !e.deletedAt && !data.levels.find((l) => l.id === e.levelId)?.deletedAt,
+    ),
     records: data.records
-      .filter((r) => !r.deletedAt)
+      .filter(
+        (r) =>
+          !r.deletedAt &&
+          !data.players.find((p) => p.id === r.playerId)?.deletedAt &&
+          !data.levels.find((l) => l.id === r.levelId)?.deletedAt,
+      )
       .map(({ note, ...r }) => ({
         ...r,
         fromSheet: note.startsWith("Источник: исходная таблица СПб;"),

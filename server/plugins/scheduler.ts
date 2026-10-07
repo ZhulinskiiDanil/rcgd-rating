@@ -1,9 +1,11 @@
 import { synchronize } from "../services/sync";
 import { db, one } from "../database";
+import { reconcileLevels } from "../services/changes";
 import { initializeHeadAdmin } from "../services/initialize";
 export default defineNitroPlugin((nitroApp) => {
   db();
   initializeHeadAdmin();
+  reconcileLevels();
   if (process.env.SYNC_ENABLED === "false") return;
   let active = false;
   const minutes = Math.max(15, Number(process.env.SYNC_INTERVAL_MINUTES) || 60);

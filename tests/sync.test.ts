@@ -7,10 +7,14 @@ process.env.DATABASE_PATH = join(
   "test.sqlite",
 );
 const { db, one, all } = await import("../server/database/index");
-const { applyGlobal, mergeRecords, importSheet } =
-  await import("../server/services/sync");
+const {
+  applyGlobal,
+  mergeRecords,
+  importSheet,
+  preserveImportedRecordsOnRebind,
+} = await import("../server/services/sync");
 const { mutate } = await import("../server/services/changes");
-const { prepareRecordDates, refreshRecordDates } =
+const { prepareRecordDates, refreshRecordDates, synchronizeVideoDates } =
   await import("../server/services/record-dates");
 const {
   parseCoreboard,
@@ -18,6 +22,7 @@ const {
   parseAchievements,
   fetchLevels,
   fetchRecords,
+  fetchGameVersion,
 } = await import("../server/services/sources");
 const levels = Array.from({ length: 151 }, (_, i) => ({
   id: i + 1,
@@ -33,6 +38,157 @@ beforeEach(() => {
   applyGlobal(levels, null);
 });
 describe("Источники и сохранение данных", () => {
+  it("загружает версию из деталей глобала и сохраняет уже заполненное значение", async () => {
+    const fetcher = vi.fn(
+      async (_url: string) =>
+        new Response(
+          JSON.stringify({
+            message: "success",
+            data: { id: 1, game_version: 2.2 },
+          }),
+        ),
+    );
+    vi.stubGlobal("fetch", fetcher);
+    expect(await fetchGameVersion(1)).toBe("2.2");
+    expect(fetcher.mock.calls[0]?.[0]).toBe(
+      "https://api.demonlist.org/level/classic/get?id=1",
+    );
+    applyGlobal(
+      [{ id: 1, name: "Level 1", placement: 1, game_version: 2.2 }],
+      null,
+    );
+    expect(
+      one<any>("SELECT gameVersion FROM levels WHERE gdlId=1").gameVersion,
+    ).toBe("2.2");
+    applyGlobal(levels, null);
+    expect(
+      one<any>("SELECT gameVersion FROM levels WHERE gdlId=1").gameVersion,
+    ).toBe("2.2");
+    db().prepare("UPDATE levels SET gameVersion='2.1' WHERE gdlId=1").run();
+    applyGlobal(
+      [{ id: 1, name: "Level 1", placement: 1, game_version: 2.2 }],
+      null,
+    );
+    expect(
+      one<any>("SELECT gameVersion FROM levels WHERE gdlId=1").gameVersion,
+    ).toBe("2.1");
+  });
+  it("ручные t/T приоритетнее Coreboard, снятие ручного режима возвращает актуальные проценты", () => {
+    db()
+      .prepare(
+        "UPDATE levels SET listPercent=30,endPercent=90,thresholdSource='manual' WHERE gdlId=1",
+      )
+      .run();
+    const thresholds = [{ name: "Level 1", position: 1, t: 50, T: 95 }];
+    applyGlobal(levels, thresholds);
+    expect(
+      one<any>(
+        "SELECT listPercent,endPercent,thresholdSource FROM levels WHERE gdlId=1",
+      ),
+    ).toEqual({ listPercent: 30, endPercent: 90, thresholdSource: "manual" });
+    db().prepare("UPDATE levels SET thresholdSource=NULL WHERE gdlId=1").run();
+    applyGlobal(levels, thresholds);
+    expect(
+      one<any>("SELECT listPercent,endPercent FROM levels WHERE gdlId=1"),
+    ).toEqual({ listPercent: 50, endPercent: 95 });
+  });
+  it("смена глобальной привязки сохраняет результаты, видео, даты и удаления", () => {
+    db()
+      .prepare("INSERT INTO players(id,name,gdlId) VALUES(1,'Player',50)")
+      .run();
+    db()
+      .prepare(
+        "INSERT INTO records(playerId,levelId,manualPercent,importedPercent,importedId,manualVideo,importedVideo,achievedAt,dateSource,sourceVideo,active,deletedAt) VALUES(1,1,90,100,123,'manual','imported','2025-03-01','video','imported',0,'2026-01-01')",
+      )
+      .run();
+    preserveImportedRecordsOnRebind(1, 50);
+    expect(one<any>("SELECT * FROM records WHERE playerId=1")).toMatchObject({
+      playerId: 1,
+      levelId: 1,
+      manualPercent: 100,
+      manualVideo: "imported",
+      importedPercent: null,
+      importedId: null,
+      importedVideo: "",
+      achievedAt: "2025-03-01",
+      dateSource: "video",
+      sourceVideo: "imported",
+      active: 0,
+      deletedAt: "2026-01-01",
+      note: expect.stringContaining("игрок 50, рекорд 123"),
+    });
+    const first = one<any>("SELECT * FROM records WHERE playerId=1");
+    preserveImportedRecordsOnRebind(1, 50);
+    expect(one<any>("SELECT * FROM records WHERE playerId=1")).toEqual(first);
+  });
+  it("не восстанавливает удалённых игроков, уровни и рекорды", () => {
+    db().prepare("INSERT INTO players(id,name) VALUES(1,'Player')").run();
+    const record = {
+      id: 44,
+      percent: 100,
+      status: "accepted",
+      level: { id: 1, name: "Level 1", placement: 1 },
+    };
+    db().prepare("UPDATE players SET deletedAt='2026-01-01' WHERE id=1").run();
+    mergeRecords(1, [record]);
+    expect(all("SELECT * FROM records")).toHaveLength(0);
+    db().prepare("UPDATE players SET deletedAt=NULL WHERE id=1").run();
+    db()
+      .prepare(
+        "UPDATE levels SET deletedAt='2026-01-01',listExcluded=1 WHERE gdlId=1",
+      )
+      .run();
+    applyGlobal(levels, null);
+    mergeRecords(1, [record]);
+    expect(all("SELECT * FROM records")).toHaveLength(0);
+    db()
+      .prepare("UPDATE levels SET deletedAt=NULL,listExcluded=0 WHERE gdlId=1")
+      .run();
+    mergeRecords(1, [record]);
+    db().prepare("UPDATE records SET deletedAt='2026-01-01',active=0").run();
+    mergeRecords(1, [record]);
+    expect(one<any>("SELECT active,deletedAt FROM records")).toEqual({
+      active: 0,
+      deletedAt: "2026-01-01",
+    });
+  });
+  it("синхронизация дат сохраняет ручную коррекцию во время запроса и не трогает удалённые записи", async () => {
+    db().prepare("INSERT INTO players(id,name) VALUES(1,'Player')").run();
+    db()
+      .prepare(
+        "INSERT INTO records(playerId,levelId,manualPercent,manualVideo) VALUES(1,1,100,'https://youtu.be/QWERTY12345')",
+      )
+      .run();
+    db()
+      .prepare(
+        "INSERT INTO records(playerId,levelId,manualPercent,manualVideo,deletedAt) VALUES(1,2,100,'https://youtu.be/QWERTY54321','2026-01-01')",
+      )
+      .run();
+    const fetcher = vi.fn(async () => {
+      db()
+        .prepare(
+          "UPDATE records SET achievedAt='2025-02-01',dateSource='manual' WHERE levelId=1",
+        )
+        .run();
+      return new Response(
+        '<meta itemprop="datePublished" content="2025-03-17">',
+      );
+    });
+    vi.stubGlobal("fetch", fetcher);
+    expect(await synchronizeVideoDates()).toMatchObject({
+      updated: 0,
+      checked: 1,
+      unavailable: 0,
+      deferred: 0,
+    });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(
+      one<any>("SELECT achievedAt,dateSource FROM records WHERE levelId=1"),
+    ).toEqual({ achievedAt: "2025-02-01", dateSource: "manual" });
+    expect(
+      one<any>("SELECT achievedAt FROM records WHERE levelId=2").achievedAt,
+    ).toBeNull();
+  });
   it("берёт дату первого из одинаковых лучших рекордов и не запрашивает даты ручных коррекций", async () => {
     db().prepare("INSERT INTO players(id,name) VALUES(1,'Player')").run();
     const fetcher = vi.fn(

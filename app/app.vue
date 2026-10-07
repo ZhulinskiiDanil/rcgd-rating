@@ -33,6 +33,7 @@ const navigation = [
   { to: "/districts", text: "Районы" },
   { to: "/changelog", text: "История" },
   { to: "/rules", text: "Правила" },
+  { to: "/news", text: "Новости" },
 ];
 const active = (path: string) =>
   path === "/demonlist"
@@ -93,15 +94,14 @@ const active = (path: string) =>
           </button>
           <NuxtLink
             :to="user ? '/account' : '/login'"
+            :aria-label="user ? 'Мой профиль' : 'Войти'"
             class="account-link"
             :class="{ 'is-signed-in': user }"
             ><UserAvatar
               v-if="user"
               :name="user.nickname || user.login"
               :url="user.avatar"
-            /><span>{{
-              user?.nickname || user?.login || "Войти"
-            }}</span></NuxtLink
+            /><span v-if="!user">Войти</span></NuxtLink
           >
           <button
             class="menu-toggle"
@@ -122,7 +122,8 @@ const active = (path: string) =>
         СПб Demonlist<span>Сложнейшие уровни. Достижения нашего города.</span>
       </div>
       <div class="footer-links">
-        <NuxtLink to="/rules">Правила рейтинга</NuxtLink
+        <NuxtLink to="/administration">Администрация</NuxtLink
+        ><NuxtLink to="/rules">Правила рейтинга</NuxtLink
         ><a href="https://demonlist.org" target="_blank" rel="noopener"
           >Global Demonlist <AppIcon name="external" :size="13" /></a
         ><a

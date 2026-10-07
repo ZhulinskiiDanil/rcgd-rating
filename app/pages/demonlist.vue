@@ -14,11 +14,54 @@ const tier = computed(() =>
 const tabs = [
   { key: "main", label: "Main list", range: "1–75" },
   { key: "extended", label: "Extended list", range: "76–150" },
-  { key: "legacy", label: "Legacy list", range: "Вылетевшие уровни" },
+  { key: "legacy", label: "Legacy list", range: "" },
 ];
 const player = computed(() =>
   data.value?.players.find((p) => p.accountId === session.value?.user?.id),
 );
+const playerRegion = computed(
+  () =>
+    data.value?.districts.find(
+      (district) => district.id === player.value?.districtId,
+    )?.region,
+);
+const firstLabel = computed(() =>
+  playerRegion.value === "spb"
+    ? "Первый в Санкт-Петербурге"
+    : playerRegion.value === "lo"
+      ? "Первый в Ленинградской области"
+      : "Первый в регионе",
+);
+const personalResults = computed(() =>
+  Object.fromEntries(
+    (data.value?.records ?? [])
+      .filter(
+        (record) =>
+          record.playerId === player.value?.id &&
+          effectivePercent({ ...record, note: "" }) > 0,
+      )
+      .map((record) => [
+        record.levelId,
+        {
+          percent: effectivePercent({ ...record, note: "" }),
+          position:
+            data.value?.levels.find((level) => level.id === record.levelId)
+              ?.localRank ?? null,
+        },
+      ]),
+  ),
+);
+const hasProgressLevels = computed(() =>
+  (data.value?.levels ?? []).some(
+    (level) =>
+      level.status === tier.value &&
+      level.globalRank !== null &&
+      level.globalRank <= 150,
+  ),
+);
+watch(tier, () => {
+  completion.value = "all";
+});
 const completed = computed(
   () =>
     new Set(
@@ -60,7 +103,20 @@ const levels = computed(() =>
         l.status === tier.value &&
         l.name.toLowerCase().includes(search.value.toLowerCase().trim()) &&
         (completion.value === "all" ||
-          completed.value.has(l.id) === (completion.value === "completed")),
+          (completion.value === "first"
+            ? first.value.has(l.id)
+            : completion.value === "progress"
+              ? !!personalResults.value[l.id] &&
+                l.globalRank !== null &&
+                l.globalRank <= 150 &&
+                personalResults.value[l.id]!.percent < 100
+              : completion.value === "achievements"
+                ? completed.value.has(l.id) ||
+                  (!!personalResults.value[l.id] &&
+                    l.globalRank !== null &&
+                    l.globalRank <= 150)
+                : completed.value.has(l.id) ===
+                  (completion.value === "completed"))),
     )
     .sort((a, b) =>
       tier.value === "legacy"
@@ -93,7 +149,7 @@ useHead({ title: "Демонлист · СПб Demonlist" });
         :class="{ selected: tier === tab.key }"
         :aria-current="tier === tab.key ? 'page' : undefined"
         ><strong>{{ tab.label }}</strong
-        ><span>{{ tab.range }}</span></NuxtLink
+        ><span v-if="tab.range">{{ tab.range }}</span></NuxtLink
       >
     </nav>
     <div class="filters">
@@ -107,6 +163,11 @@ useHead({ title: "Демонлист · СПб Demonlist" });
           <option value="all">Все уровни</option>
           <option value="completed">Пройденные</option>
           <option value="remaining">Непройденные</option>
+          <option v-if="hasProgressLevels" value="progress">Прогрессы</option>
+          <option v-if="hasProgressLevels" value="achievements">
+            Пройденные и прогрессы
+          </option>
+          <option v-if="playerRegion" value="first">{{ firstLabel }}</option>
         </select></label
       ><span class="muted">{{ levels.length }} уровней</span>
     </div>
@@ -115,8 +176,8 @@ useHead({ title: "Демонлист · СПб Demonlist" });
       здесь больше не принимаются.
     </p>
     <p v-if="player" class="legend">
-      <span>Зелёная рамка — пройден</span
-      ><span>Жёлтая — первый виктор в городе или области</span>
+      <span>Зелёная рамка — пройден</span><span>Жёлтая — {{ firstLabel }}</span
+      ><span v-if="hasProgressLevels">Синяя — прогресс</span>
     </p>
     <div v-if="error" class="error" role="alert">
       Не удалось загрузить лист. <button @click="refresh()">Повторить</button>
@@ -128,10 +189,21 @@ useHead({ title: "Демонлист · СПб Demonlist" });
       :victors="victors"
       :completed="completed"
       :first="first"
+      :results="personalResults"
     />
+    <NuxtLink
+      v-if="tier !== 'legacy'"
+      class="next-list button"
+      :to="`/demonlist?list=${tier === 'main' ? 'extended' : 'legacy'}`"
+      >Перейти в {{ tier === "main" ? "Extended list" : "Legacy list"
+      }}<AppIcon name="arrow"
+    /></NuxtLink>
   </section>
 </template>
 <style scoped lang="scss">
+.next-list {
+  margin-top: 28px;
+}
 .list-tabs {
   display: flex;
   gap: 32px;

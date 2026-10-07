@@ -3,7 +3,9 @@ declare module "#auth-utils" {
     id: number;
   }
   interface SecureSessionData {
-    linkAccountId?: number;
+    accountKey?: string;
+    authMethod?: "password" | "discord" | "google";
+    reauthenticatedAt?: number;
   }
 }
 export {};

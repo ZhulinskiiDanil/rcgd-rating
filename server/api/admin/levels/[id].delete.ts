@@ -11,7 +11,9 @@ export default defineEventHandler(async (event) => {
   if (!level)
     throw createError({ statusCode: 404, message: "Уровень не найден" });
   mutate("Уровень исключён из листа", user.id, () => {
-    db().prepare("UPDATE levels SET listExcluded=1 WHERE id=?").run(id);
+    db()
+      .prepare("UPDATE levels SET listExcluded=1,deletedAt=? WHERE id=?")
+      .run(new Date().toISOString(), id);
     logChange(
       "level-exclusion",
       id,

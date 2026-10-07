@@ -1,8 +1,19 @@
 import { all } from "../database";
 export default defineEventHandler((event) => {
   const query = getQuery(event);
+  if (
+    query.kind &&
+    !["level", "player-rating", "district-rating"].includes(String(query.kind))
+  )
+    return [];
   const page = Math.max(1, Math.min(100000, Number(query.page) || 1));
-  const kind = typeof query.kind === "string" ? query.kind : "";
+  const kind = ["level", "player-rating", "district-rating"].includes(
+    String(query.kind),
+  )
+    ? String(query.kind)
+    : "level";
+  const search =
+    typeof query.search === "string" ? query.search.trim().slice(0, 200) : "";
   return all<{
     id: number;
     kind: string;
@@ -10,8 +21,9 @@ export default defineEventHandler((event) => {
     title: string;
     createdAt: string;
   }>(
-    `SELECT id,kind,entityId,title,createdAt FROM changes WHERE public=1 AND kind IN ('level','player-rating','district-rating') ${kind ? "AND kind=?" : ""} ORDER BY id DESC LIMIT 50 OFFSET ?`,
-    ...(kind ? [kind] : []),
+    `SELECT id,kind,entityId,CASE WHEN kind IN ('player-rating','district-rating') THEN replace(replace(title,'«',''),'»','') ELSE title END AS title,createdAt FROM changes WHERE public=1 AND kind=? AND title LIKE ? ESCAPE '!' ORDER BY id DESC LIMIT 50 OFFSET ?`,
+    kind,
+    `%${search.replace(/[!%_]/g, "!$&")}%`,
     (page - 1) * 50,
   );
 });

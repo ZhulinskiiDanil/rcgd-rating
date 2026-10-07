@@ -15,6 +15,9 @@ const can = (p: Permission) =>
 const tabs = computed(() => [
   ...(can("players:write") ? [{ key: "players", label: "Игроки" }] : []),
   ...(can("levels:write") ? [{ key: "levels", label: "Уровни" }] : []),
+  ...(can("levels:write") || can("sync:run")
+    ? [{ key: "coreboard", label: "Coreboard" }]
+    : []),
   ...(can("records:write") ? [{ key: "records", label: "Рекорды" }] : []),
   ...(can("districts:write")
     ? [
@@ -32,9 +35,14 @@ const tab = ref(tabs.value[0]?.key || "");
 const busy = ref(false),
   notice = ref(""),
   syncError = ref("");
+const dateBusy = ref(false),
+  dateNotice = ref(""),
+  dateError = ref("");
 const schemas = useAdminSchemas(data);
 const editor = computed(() =>
-  tab.value === "sync" ? undefined : schemas.value[tab.value as EntityResource],
+  ["sync", "coreboard"].includes(tab.value)
+    ? undefined
+    : schemas.value[tab.value as EntityResource],
 );
 const sectionInfo: Record<string, string> = {
   players: "Профили игроков, районы и привязки к глобальному листу.",
@@ -45,8 +53,9 @@ const sectionInfo: Record<string, string> = {
   extras:
     "Подтверждённые прохождения района без привязки к конкретному игроку.",
   news: "Новости сообщества для публичной ленты изменений.",
-  accounts:
-    "Доступ к разделам сайта. Новые аккаунты создаются через регистрацию.",
+  accounts: "Аккаунты пользователей и доступ к разделам сайта.",
+  coreboard:
+    "Листовые и эндинг-проценты, ручные значения и новые уровни глобального топ-150.",
   sync: "Обновления глобальных позиций, процентов и принятых рекордов.",
 };
 const runLabels: Record<string, string> = {
@@ -80,6 +89,7 @@ async function saved() {
   if (tab.value === "accounts") await refreshNuxtData("account");
 }
 async function sync() {
+  if (busy.value || dateBusy.value) return;
   busy.value = true;
   notice.value = "";
   syncError.value = "";
@@ -94,6 +104,23 @@ async function sync() {
     busy.value = false;
   }
 }
+async function syncDates() {
+  if (busy.value || dateBusy.value) return;
+  dateBusy.value = true;
+  dateNotice.value = "";
+  dateError.value = "";
+  try {
+    const result = await $fetch("/api/admin/sync-video-dates", {
+      method: "POST",
+    });
+    dateNotice.value = `Проверено видео: ${result.checked}. Обновлено записей: ${result.updated}. Без доступной даты: ${result.unavailable}.${result.deferred ? ` Осталось ${result.deferred} видео — нажми ещё раз, чтобы обработать следующий пакет.` : ""}`;
+    await saved();
+  } catch (error: any) {
+    dateError.value = error.data?.message || "Не удалось обновить даты видео";
+  } finally {
+    dateBusy.value = false;
+  }
+}
 </script>
 <template>
   <section class="admin-page">
@@ -106,7 +133,7 @@ async function sync() {
         ><AppIcon name="shield" :size="18" /><span
           >{{ user?.login
           }}<small>{{
-            user?.headAdmin ? "Head-admin" : "Администрация"
+            user?.headAdmin ? "Главный администратор" : "Администрация"
           }}</small></span
         ></NuxtLink
       >
@@ -139,6 +166,16 @@ async function sync() {
       :allow-create="editor.create"
       @saved="saved"
     />
+    <CoreboardPanel
+      v-if="tab === 'coreboard'"
+      :levels="data?.levels ?? []"
+      :can-edit="can('levels:write')"
+      :can-sync="can('sync:run')"
+      :busy="busy || dateBusy || !!data?.pendingSync"
+      :notice="notice"
+      :error="syncError"
+      @sync="sync"
+    />
     <div v-if="tab === 'sync'" class="sync-layout">
       <section class="sync-settings panel">
         <div class="sync-heading">
@@ -159,7 +196,7 @@ async function sync() {
         <div class="sync-actions">
           <button
             class="primary"
-            :disabled="busy || data?.pendingSync"
+            :disabled="busy || dateBusy || data?.pendingSync"
             @click="sync"
           >
             <AppIcon name="history" :size="16" />{{
@@ -174,6 +211,26 @@ async function sync() {
         </p>
         <p v-if="notice" class="sync-result" role="status">{{ notice }}</p>
         <p v-if="syncError" class="error" role="alert">{{ syncError }}</p>
+        <div class="date-sync">
+          <h3>Даты видео</h3>
+          <p>
+            Обновляет даты прохождений по видео YouTube. Даты, указанные
+            вручную, сохраняются. Один запуск проверяет до 60 видео.
+          </p>
+          <button
+            type="button"
+            :disabled="dateBusy || busy || data?.pendingSync"
+            @click="syncDates"
+          >
+            {{
+              dateBusy ? "Проверяем даты видео…" : "Синхронизировать даты видео"
+            }}
+          </button>
+          <p v-if="dateNotice" class="sync-result" role="status">
+            {{ dateNotice }}
+          </p>
+          <p v-if="dateError" class="error" role="alert">{{ dateError }}</p>
+        </div>
       </section>
       <section class="sync-history panel">
         <div class="history-heading">
@@ -334,6 +391,18 @@ async function sync() {
 .sync-settings .error {
   color: var(--danger);
   overflow-wrap: anywhere;
+}
+.date-sync {
+  margin-top: 30px;
+  padding-top: 25px;
+  border-top: 1px solid var(--line);
+  h3 {
+    margin: 0;
+    font-size: 17px;
+  }
+  button {
+    font-size: 14px;
+  }
 }
 .history-heading {
   padding: 22px 25px;

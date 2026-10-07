@@ -157,7 +157,7 @@ try {
         body: { id: adminId, disabled: true },
       })
     ).status,
-    400,
+    409,
   );
   assert.equal(
     (await call("/api/auth/me", { cookie: admin })).value.headAdmin,
@@ -537,6 +537,8 @@ try {
     "/districts/1",
     "/rules",
     "/changelog",
+    "/news",
+    "/administration",
     "/login",
   ]) {
     const response = await call(page);
@@ -578,7 +580,7 @@ try {
         body: { nickname: "TESTADMIN" },
       })
     ).status,
-    409,
+    200,
   );
   assert.equal(
     (
@@ -642,7 +644,7 @@ try {
         body: { ...recordFields, manualPercent: 90 },
       })
     ).status,
-    400,
+    200,
   );
   assert.equal(
     (
@@ -652,7 +654,7 @@ try {
         body: { districtId: 2, levelId: fakeLevel.value.id },
       })
     ).status,
-    400,
+    200,
   );
   assert.equal(
     (
@@ -700,9 +702,75 @@ try {
   const excluded = (await call("/api/catalog")).value.levels.find(
     (l) => l.id === fakeLevel.value.id,
   );
-  assert.equal(excluded.status, "catalog");
-  assert.equal(excluded.listExcluded, 1);
+  assert.equal(excluded, undefined);
   assert.equal((await call(`/levels/${fakeLevel.value.id}`)).status, 404);
+  for (const [resource, id] of [
+    ["levels", fakeLevel.value.id],
+    ["records", record.value.id],
+  ]) {
+    const restored = await call("/api/admin/restore", {
+      method: "POST",
+      cookie: admin,
+      body: { resource, id },
+    });
+    assert.equal(restored.status, 200, JSON.stringify(restored.value));
+  }
+  assert.equal((await call("/api/catalog")).value.records.length, 1);
+  assert.equal(
+    (
+      await call(`/api/admin/players/${player.value.id}`, {
+        method: "DELETE",
+        cookie: admin,
+      })
+    ).status,
+    200,
+  );
+  assert.equal((await call("/api/catalog")).value.players.length, 0);
+  assert.equal(
+    (
+      await call("/api/admin/restore", {
+        method: "POST",
+        cookie: admin,
+        body: { resource: "players", id: player.value.id },
+      })
+    ).status,
+    200,
+  );
+  assert.equal((await call("/api/catalog")).value.players.length, 1);
+  assert.equal(
+    (
+      await call("/api/admin/players", {
+        method: "POST",
+        cookie: admin,
+        body: { ...playerFields, hidden: true },
+      })
+    ).status,
+    200,
+  );
+  assert.equal((await call("/api/catalog")).value.players[0].rank, null);
+  assert.equal(
+    (
+      await call("/api/admin/players", {
+        method: "POST",
+        cookie: admin,
+        body: { ...playerFields, hidden: false },
+      })
+    ).status,
+    200,
+  );
+  assert.equal((await call("/api/news")).value[0].title, "Smoke news");
+  assert.equal((await call("/api/administration")).value[0].headAdmin, 1);
+  const accounts = (await call("/api/admin", { cookie: admin })).value.accounts;
+  assert.ok(
+    accounts.every((a) => !("passwordHash" in a) && !("sessionKey" in a)),
+  );
+  for (const kind of ["levels", "players", "districts", "records"]) {
+    const exported = await call(`/api/export/${kind}.csv`);
+    assert.equal(exported.status, 200);
+    assert.ok(
+      typeof exported.value === "string" && exported.value.includes("\r\n"),
+    );
+  }
   const events = (await call("/api/changes")).value;
   assert.ok(
     events.every((e) =>
@@ -762,7 +830,7 @@ try {
     200,
   );
   console.log(
-    "HTTP smoke passed: public pages, 75/75 list, custom levels, nickname, inactive players, Legacy rejection, deletions, history, records, CSRF, permissions, disabled account, logout.",
+    "HTTP smoke passed: public pages, 75/75 list, custom levels, nickname, inactive players, Legacy editing, soft deletion/restoration, CSV exports, history, records, CSRF, permissions, disabled account, logout.",
   );
 } catch (error) {
   console.error(output);

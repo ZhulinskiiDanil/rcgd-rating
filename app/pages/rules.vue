@@ -1,12 +1,32 @@
 <script setup lang="ts">
-import { formatPosition } from "#shared/utils/presentation";
-import { progressPosition, WEIGHTS } from "#shared/utils/rating";
+import { formatPosition, formatScore } from "#shared/utils/presentation";
+import { progressPosition, geometricMean } from "#shared/utils/rating";
 const examplePlace = ref(12),
-  exampleProgress = ref(75);
+  exampleProgress = ref(75),
+  exampleList = ref(50),
+  exampleEnd = ref(98);
+const hardestInputs = ref<(number | "")[]>([1, 10, 25, 50, 100, 150]);
+const hardestPositions = computed(() =>
+  hardestInputs.value
+    .map((value) => (value === "" ? 150 : Number(value)))
+    .sort((a, b) => a - b),
+);
+const hardestResult = computed(() =>
+  hardestPositions.value.every(
+    (value) => Number.isFinite(value) && value >= 1 && value <= 150,
+  )
+    ? geometricMean(hardestPositions.value)
+    : null,
+);
 const exampleResult = computed(() => {
   const position = Number(examplePlace.value);
   if (!Number.isFinite(position) || position < 1 || position > 150) return null;
-  return progressPosition(position, Number(exampleProgress.value), 50, 98);
+  return progressPosition(
+    position,
+    Number(exampleProgress.value),
+    Number(exampleList.value),
+    Number(exampleEnd.value),
+  );
 });
 useHead({ title: "Как считается рейтинг · СПб Demonlist" });
 </script>
@@ -37,23 +57,15 @@ useHead({ title: "Как считается рейтинг · СПб Demonlist" 
             уровень, тем меньше его номер и тем сильнее результат. Из достижений
             игрока выбираются шесть лучших.
           </p>
-          <div class="weights-panel">
-            <h3>Вес каждого хардеста</h3>
-            <div class="weights">
-              <div v-for="(weight, i) in WEIGHTS" :key="weight">
-                <span>{{ i + 1 }}-й</span
-                ><strong>{{ weight }}<small>/42</small></strong
-                ><span
-                  class="weight-bar"
-                  :style="{ height: weight * 4 + 'px' }"
-                />
-              </div>
-            </div>
+          <div class="formula">
+            <code>Балл = <sup>6</sup>√(h₁ × h₂ × h₃ × h₄ × h₅ × h₆)</code>
           </div>
           <p>
-            Шесть наименьших условных позиций умножаются на свои веса и
-            суммируются. Для каждого уровня берётся только лучший результат:
-            прохождение заменяет прогресс.
+            Балл — среднее геометрическое шести наименьших условных позиций.
+            Значения под корнем идут от самого сложного результата к самому
+            простому. Новый результат вытесняет наибольшее значение из шестёрки.
+            Для каждого уровня берётся только лучший результат: прохождение
+            заменяет прогресс.
           </p>
           <div class="rule-callout">
             <AppIcon name="check" />
@@ -61,6 +73,33 @@ useHead({ title: "Как считается рейтинг · СПб Demonlist" 
               <strong>Меньше балл — выше место.</strong> Одинаковый балл даёт
               одинаковое место. Пустой слот равен 150; результат хуже 150 не
               заменяет пустой слот.
+            </p>
+          </div>
+          <div class="example-panel panel">
+            <h3>Попробуйте шесть хардестов</h3>
+            <div class="hardest-controls">
+              <label v-for="(_, i) in hardestInputs" :key="i"
+                >Результат {{ i + 1
+                }}<input
+                  v-model.number="hardestInputs[i]"
+                  type="number"
+                  min="1"
+                  max="150"
+                  step="0.01"
+                  placeholder="150"
+              /></label>
+            </div>
+            <p class="hardest-equation" aria-live="polite">
+              <template v-if="hardestResult !== null"
+                ><sup>6</sup>√({{
+                  hardestPositions.map(formatPosition).join(" × ")
+                }}) =
+                <strong>{{ formatScore(hardestResult) }}</strong></template
+              ><template v-else>Укажите позиции от 1 до 150.</template>
+            </p>
+            <p>
+              Пустое поле — позиция 150. Для прогресса введите его условную
+              позицию из формулы ниже.
             </p>
           </div>
         </section>
@@ -102,7 +141,7 @@ useHead({ title: "Как считается рейтинг · СПб Demonlist" 
           <div class="example-panel panel">
             <div class="example-heading">
               <h3>Попробуйте формулу</h3>
-              <span>Пример с t = 50%, T = 98%</span>
+              <span>Пороги можно изменить</span>
             </div>
             <div class="example-controls">
               <label
@@ -118,13 +157,28 @@ useHead({ title: "Как считается рейтинг · СПб Demonlist" 
                 ><input
                   v-model.number="exampleProgress"
                   type="range"
-                  min="50"
-                  max="98"
+                  min="1"
+                  max="99"
                   step="1"
                 /><span class="range-endpoints"
-                  ><span>50%</span><span>98%</span></span
+                  ><span>1%</span><span>99%</span></span
                 ></label
               >
+              <label
+                >Лист-процент t<input
+                  v-model.number="exampleList"
+                  type="number"
+                  min="0.01"
+                  max="99.99"
+                  step="0.01" /></label
+              ><label
+                >Конец уровня T<input
+                  v-model.number="exampleEnd"
+                  type="number"
+                  min="0.01"
+                  max="100"
+                  step="0.01"
+              /></label>
               <div class="example-result" aria-live="polite">
                 <span>Условная позиция</span
                 ><strong>{{
@@ -133,12 +187,12 @@ useHead({ title: "Как считается рейтинг · СПб Demonlist" 
               </div>
             </div>
             <p v-if="exampleResult === null">
-              Введите место от 1 до 150. Результат выше 150 не входит в шестёрку
-              лучших.
+              Введите место от 1 до 150 и пороги 0 &lt; t &lt; T ≤ 100. Прогресс
+              ниже t и условная позиция хуже 150 не входят в шестёрку.
             </p>
             <p v-else>
               Эта позиция сравнивается с остальными результатами игрока. Чем
-              ближе прогресс к эндингу, тем сильнее результат.
+              ближе прогресс к концу уровня, тем сильнее результат.
             </p>
           </div>
         </section>
@@ -151,8 +205,9 @@ useHead({ title: "Как считается рейтинг · СПб Demonlist" 
             учитываются.
           </p>
           <p>
-            Веса и пустые слоты такие же, как у игроков. Достижения за пределами
-            местного топа-150 остаются в карточке района, но не улучшают балл.
+            Геометрическое среднее и пустые слоты такие же, как у игроков.
+            Достижения за пределами местного топа-150 остаются в карточке
+            района, но не улучшают балл.
           </p>
           <p>
             У игрока один район. При его смене все прохождения переходят в зачёт
@@ -219,6 +274,23 @@ useHead({ title: "Как считается рейтинг · СПб Demonlist" 
   </article>
 </template>
 <style scoped lang="scss">
+.hardest-controls {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  label {
+    min-width: 0;
+  }
+}
+.hardest-equation {
+  overflow-wrap: anywhere;
+  font-size: 18px;
+}
+@media (max-width: 520px) {
+  .hardest-controls {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
 .page-heading h1 {
   margin-bottom: 13px;
 }
@@ -276,51 +348,6 @@ useHead({ title: "Как считается рейтинг · СПб Demonlist" 
     line-height: 1.9;
     margin: 16px 0;
   }
-}
-.weights-panel {
-  margin: 26px 0;
-  h3 {
-    font-size: 16px;
-    font-weight: 500;
-    color: var(--muted);
-    margin: 0 0 20px;
-  }
-}
-.weights {
-  display: grid;
-  grid-template-columns: repeat(6, 1fr);
-  gap: 12px;
-  border-bottom: 1px solid var(--line);
-  > div {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    justify-content: flex-end;
-    min-height: 106px;
-    > span:first-child {
-      font-size: 14px;
-      color: var(--muted);
-      margin-bottom: 9px;
-    }
-    strong {
-      font-size: 21px;
-      font-weight: 500;
-      margin-bottom: auto;
-      padding-bottom: 14px;
-    }
-    small {
-      font-size: 14px;
-      font-weight: 400;
-      color: var(--muted);
-    }
-  }
-}
-.weight-bar {
-  width: 100%;
-  max-width: 65px;
-  background: var(--accent-soft);
-  border-top: 2px solid var(--accent);
-  border-radius: 4px 4px 0 0;
 }
 .rule-callout {
   display: flex;
@@ -551,12 +578,6 @@ useHead({ title: "Как считается рейтинг · СПб Demonlist" 
     flex-direction: row;
     align-items: center;
     justify-content: space-between;
-  }
-  .weights {
-    gap: 8px;
-    > div strong {
-      font-size: 19px;
-    }
   }
   .formula {
     padding: 20px 16px;

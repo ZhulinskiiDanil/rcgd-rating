@@ -11,6 +11,11 @@ const map = JSON.parse(
   timestamp: string;
   viewBox: [number, number, number, number];
   cityBounds: [number, number, number, number];
+  shoreline: {
+    lakeRelation: number;
+    seaSource: string;
+    projection: { minX: number; minY: number; scale: number };
+  };
   features: {
     osmId: number;
     name: string;
@@ -31,6 +36,59 @@ const rings = (path: string) =>
     );
 
 describe("district map geographic data", () => {
+  it("retains full names for urban okrugs", () => {
+    expect(
+      map.features.find(
+        (feature) =>
+          feature.region === "lo" && feature.name.startsWith("Гатчинский"),
+      )?.name,
+    ).toBe("Гатчинский городской округ");
+    expect(
+      map.features.find(
+        (feature) =>
+          feature.region === "lo" && feature.name.startsWith("Сосновоборский"),
+      )?.name,
+    ).toBe("Сосновоборский городской округ");
+  });
+  it("excludes Gulf and Ladoga water from interactive district paths while preserving land", () => {
+    const { minX, minY, scale } = map.shoreline.projection;
+    const at = (lon: number, lat: number) => {
+      const x = ((lon * Math.PI) / 180 - minX) * scale + 24;
+      const y =
+        (-Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 360)) - minY) *
+          scale +
+        24;
+      return map.features.filter((feature) => {
+        let inside = false;
+        for (const ring of rings(feature.path))
+          for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+            const [xi, yi] = ring[i]! as [number, number];
+            const [xj, yj] = ring[j]! as [number, number];
+            if (
+              yi > y !== yj > y &&
+              x < ((xj - xi) * (y - yi)) / (yj - yi) + xi
+            )
+              inside = !inside;
+          }
+        return inside;
+      });
+    };
+    expect(at(28.9, 60.0)).toHaveLength(0);
+    expect(at(31.7, 60.7)).toHaveLength(0);
+    expect(at(29.13, 60.02)).toHaveLength(0);
+    expect(
+      at(30.13, 59.57).some(
+        (feature) => feature.name === "Гатчинский городской округ",
+      ),
+    ).toBe(true);
+    expect(
+      at(29.09, 59.9).some(
+        (feature) => feature.name === "Сосновоборский городской округ",
+      ),
+    ).toBe(true);
+    expect(map.shoreline.lakeRelation).toBeGreaterThan(0);
+    expect(map.shoreline.seaSource).toContain("osmdata.openstreetmap.de");
+  });
   it("covers all 18 city and 18 oblast districts without conflating repeated names", () => {
     expect(
       map.features.filter((feature) => feature.region === "spb"),
@@ -51,7 +109,9 @@ describe("district map geographic data", () => {
       map.features.filter((feature) => feature.name === "Кировский"),
     ).toHaveLength(2);
     expect(
-      map.features.find((feature) => feature.name === "Сосновоборский")?.region,
+      map.features.find(
+        (feature) => feature.name === "Сосновоборский городской округ",
+      )?.region,
     ).toBe("lo");
   });
 

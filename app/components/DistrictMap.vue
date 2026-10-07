@@ -417,6 +417,7 @@ function keyboard(event: KeyboardEvent) {
 <style scoped lang="scss">
 .district-map {
   margin: 42px 0;
+  --empty-district: color-mix(in srgb, var(--surface-raised) 82%, var(--muted));
 }
 .map-heading {
   display: flex;
@@ -497,10 +498,11 @@ function keyboard(event: KeyboardEvent) {
   }
 }
 .district-shape {
-  fill: var(--surface-raised);
+  fill: var(--empty-district);
   stroke: var(--surface);
   stroke-width: 1.5px;
   cursor: pointer;
+  outline: none;
   transition: fill 0.12s;
   &.spb {
     stroke: var(--line);
@@ -509,7 +511,9 @@ function keyboard(event: KeyboardEvent) {
   &.populated {
     fill: color-mix(in srgb, var(--accent) 45%, var(--surface));
   }
-  &:hover,
+  &:hover {
+    fill: color-mix(in srgb, var(--accent) 70%, var(--surface));
+  }
   &:focus-visible {
     fill: color-mix(in srgb, var(--accent) 70%, var(--surface));
     outline: none;
@@ -518,8 +522,6 @@ function keyboard(event: KeyboardEvent) {
   }
   &.selected {
     fill: var(--accent);
-    stroke: var(--warm);
-    stroke-width: 2.5px;
   }
 }
 .map-caption {
@@ -555,7 +557,7 @@ function keyboard(event: KeyboardEvent) {
     width: 13px;
     height: 13px;
     display: inline-block;
-    background: var(--surface-raised);
+    background: var(--empty-district);
     border: 1px solid var(--line);
     border-radius: 3px;
     &.populated {

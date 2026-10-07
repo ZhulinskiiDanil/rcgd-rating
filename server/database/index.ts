@@ -2,6 +2,8 @@ import Database from "better-sqlite3";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { resolveDatabasePath } from "./path";
+import { migrateCommunity } from "./community";
+import { migrateAccountSecurity } from "./account-security";
 import {
   migrateMedia,
   migrateRecordDates,
@@ -23,10 +25,11 @@ export function db() {
   const file = resolveDatabasePath();
   mkdirSync(dirname(file), { recursive: true });
   connection = new Database(file);
-  connection.pragma("journal_mode = WAL");
-  connection.pragma("foreign_keys = ON");
-  connection.pragma("busy_timeout = 5000");
-  connection.exec(`
+  try {
+    connection.pragma("journal_mode = WAL");
+    connection.pragma("foreign_keys = ON");
+    connection.pragma("busy_timeout = 5000");
+    connection.exec(`
     CREATE TABLE IF NOT EXISTS districts (id INTEGER PRIMARY KEY, name TEXT NOT NULL, region TEXT NOT NULL CHECK(region IN ('spb','lo')), UNIQUE(name, region));
     CREATE TABLE IF NOT EXISTS accounts (
       id INTEGER PRIMARY KEY, login TEXT NOT NULL COLLATE NOCASE UNIQUE, passwordHash TEXT,
@@ -52,67 +55,75 @@ export function db() {
     CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS rateLimits (key TEXT PRIMARY KEY, count INTEGER NOT NULL, expires INTEGER NOT NULL);
   `);
-  migrateMedia(connection);
-  migrateRecordDates(connection);
-  migrateListControls(connection);
-  const cities = [
-    "Адмиралтейский",
-    "Василеостровский",
-    "Выборгский",
-    "Калининский",
-    "Кировский",
-    "Колпинский",
-    "Красногвардейский",
-    "Красносельский",
-    "Кронштадтский",
-    "Курортный",
-    "Московский",
-    "Невский",
-    "Петроградский",
-    "Петродворцовый",
-    "Приморский",
-    "Пушкинский",
-    "Фрунзенский",
-    "Центральный",
-  ];
-  const oblast = [
-    "Бокситогорский",
-    "Волосовский",
-    "Волховский",
-    "Всеволожский",
-    "Выборгский",
-    "Гатчинский",
-    "Кингисеппский",
-    "Киришский",
-    "Кировский",
-    "Лодейнопольский",
-    "Ломоносовский",
-    "Лужский",
-    "Подпорожский",
-    "Приозерский",
-    "Сланцевский",
-    "Тихвинский",
-    "Тосненский",
-    "Сосновоборский",
-  ];
-  const insert = connection.prepare(
-    "INSERT OR IGNORE INTO districts(name,region) VALUES (?,?)",
-  );
-  if (
-    !connection
-      .prepare("SELECT key FROM settings WHERE key='districtsSeeded'")
-      .get()
-  )
-    connection.transaction(() => {
-      cities.forEach((n) => insert.run(n, "spb"));
-      oblast.forEach((n) => insert.run(n, "lo"));
-      connection!
-        .prepare(
-          "INSERT INTO settings(key,value) VALUES ('districtsSeeded','1')",
-        )
-        .run();
-    })();
-  return connection;
+    migrateMedia(connection);
+    migrateRecordDates(connection);
+    migrateListControls(connection);
+    migrateCommunity(connection);
+    migrateAccountSecurity(connection);
+    const cities = [
+      "Адмиралтейский",
+      "Василеостровский",
+      "Выборгский",
+      "Калининский",
+      "Кировский",
+      "Колпинский",
+      "Красногвардейский",
+      "Красносельский",
+      "Кронштадтский",
+      "Курортный",
+      "Московский",
+      "Невский",
+      "Петроградский",
+      "Петродворцовый",
+      "Приморский",
+      "Пушкинский",
+      "Фрунзенский",
+      "Центральный",
+    ];
+    const oblast = [
+      "Бокситогорский",
+      "Волосовский",
+      "Волховский",
+      "Всеволожский",
+      "Выборгский",
+      "Гатчинский городской округ",
+      "Кингисеппский",
+      "Киришский",
+      "Кировский",
+      "Лодейнопольский",
+      "Ломоносовский",
+      "Лужский",
+      "Подпорожский",
+      "Приозерский",
+      "Сланцевский",
+      "Тихвинский",
+      "Тосненский",
+      "Сосновоборский городской округ",
+    ];
+    const insert = connection.prepare(
+      "INSERT OR IGNORE INTO districts(name,region) VALUES (?,?)",
+    );
+    if (
+      !connection
+        .prepare("SELECT key FROM settings WHERE key='districtsSeeded'")
+        .get()
+    )
+      connection.transaction(() => {
+        cities.forEach((n) => insert.run(n, "spb"));
+        oblast.forEach((n) => insert.run(n, "lo"));
+        connection!
+          .prepare(
+            "INSERT INTO settings(key,value) VALUES ('districtsSeeded','1')",
+          )
+          .run();
+      })();
+    return connection;
+  } catch (cause) {
+    const failed = connection;
+    connection = undefined;
+    failed.close();
+    throw cause;
+  }
 }
 export function all<T>(
   sql: string,

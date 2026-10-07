@@ -31,16 +31,7 @@ let dateRequest: AbortController | undefined;
 let dateTimer: ReturnType<typeof setTimeout> | undefined;
 let dateVersion = 0;
 const isBusy = computed(() => busy.value || imageUploads.value.size > 0);
-const protectedAccount = computed(
-  () => props.resource === "accounts" && !!props.row?.headAdmin,
-);
-const visibleFields = computed(() =>
-  protectedAccount.value
-    ? props.fields.filter(
-        (field) => !["permissions", "disabled"].includes(field.key),
-      )
-    : props.fields,
-);
+const visibleFields = computed(() => props.fields);
 const isDirty = computed(
   () => JSON.stringify(form.value) !== initialSnapshot.value,
 );
@@ -59,9 +50,11 @@ function initialize() {
   const values: Record<string, any> = {};
   if (props.row?.id) values.id = props.row.id;
   for (const field of props.fields) {
-    const value = props.row
+    let value = props.row
       ? (props.row[field.key] ?? field.default)
       : (props.defaults?.[field.key] ?? field.default);
+    if (field.key === "thresholdSource" && value && value !== "manual")
+      value = "coreboard";
     values[field.key] =
       field.type === "checkbox"
         ? !!value
@@ -261,9 +254,6 @@ onMounted(() => {
         <AppIcon name="close" :size="20" />
       </button>
     </div>
-    <p v-if="protectedAccount" class="protected-note">
-      У head-admin можно изменить аватар. Его права и доступ защищены.
-    </p>
     <p
       v-if="error"
       ref="errorSummary"

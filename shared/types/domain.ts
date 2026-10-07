@@ -37,6 +37,7 @@ export interface Level {
   length: number | null;
   status: "catalog" | "main" | "extended" | "legacy";
   listExcluded: number;
+  deletedAt?: string | null;
   manualPosition: number | null;
   gameVersion: string;
   enteredAt: string | null;
@@ -53,6 +54,8 @@ export interface Player {
   accountId: number | null;
   avatarUrl: string;
   inactive: number;
+  hidden?: number;
+  deletedAt?: string | null;
 }
 export interface District {
   id: number;
@@ -76,6 +79,7 @@ export interface RecordEntry {
   dateSource: "manual" | "video" | null;
   sourceVideo: string;
   deletedAt: string | null;
+  isFirstRk?: number;
   updatedAt: string;
 }
 export interface DistrictExtra {
@@ -84,12 +88,15 @@ export interface DistrictExtra {
   levelId: number;
   note: string;
   achievedAt: string | null;
+  deletedAt?: string | null;
 }
 export interface Account {
   id: number;
   login: string;
   nickname: string;
   passwordHash: string | null;
+  sessionKey: string;
+  avatarLocked: number;
   headAdmin: number;
   permissions: Permission[];
   disabled: number;
@@ -117,7 +124,8 @@ export interface Ranking {
   top: RatedResult[];
 }
 export interface RankedPlayer extends Player, Ranking {
-  rank: number;
+  rank: number | null;
+  role?: "head-admin" | "admin" | null;
   districtName: string | null;
   avatar: string | null;
 }

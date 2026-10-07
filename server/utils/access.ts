@@ -1,11 +1,12 @@
 import type { H3Event } from "h3";
 import type { Permission } from "../../shared/types/domain";
 import { account, db, one } from "../database";
+import { sessionMatchesAccount } from "../services/account-session";
 export async function currentAccount(event: H3Event) {
   const session = await getUserSession(event);
   if (!session.user?.id) return null;
   const value = account(session.user.id);
-  return value && !value.disabled ? value : null;
+  return sessionMatchesAccount(session, value) ? value! : null;
 }
 export async function requireAccount(event: H3Event) {
   const user = await currentAccount(event);

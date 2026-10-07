@@ -41,13 +41,16 @@ export interface AdminData extends DataSet {
   accounts: {
     id: number;
     login: string;
+    nickname: string;
+    displayName: string;
+    avatarLocked: number;
     headAdmin: number;
     disabled: number;
     permissions: string[];
     avatarUrl: string;
     avatar: string | null;
   }[];
-  accountOptions: { id: number; login: string }[];
+  accountOptions: { id: number; login: string; displayName: string }[];
   syncRuns: {
     id: number;
     status: string;

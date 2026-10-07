@@ -1,6 +1,6 @@
 <script setup lang="ts">
 const props = defineProps<{
-  resource: "levels" | "records" | "extras";
+  resource: "levels" | "records" | "extras" | "players";
   entityId: number;
   label?: string;
   compact?: boolean;
@@ -15,7 +15,9 @@ async function remove() {
   const message =
     props.resource === "levels"
       ? "Убрать уровень из СПб-листа без переноса в Legacy? Синхронизация не вернёт его автоматически."
-      : "Удалить это достижение? Рейтинг будет пересчитан.";
+      : props.resource === "players"
+        ? "Удалить игрока из публичного рейтинга? Его данные сохранятся и будут доступны для восстановления."
+        : "Удалить это достижение? Рейтинг будет пересчитан.";
   if (busy.value || !window.confirm(message)) return;
   busy.value = true;
   error.value = "";
@@ -61,8 +63,15 @@ async function remove() {
 .delete-action {
   display: inline-flex;
   align-items: center;
+  flex-shrink: 0;
+  white-space: nowrap;
   gap: 8px;
   button {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+    overflow-wrap: normal;
     color: var(--danger);
     padding: 8px 10px;
     font-size: 13px;

@@ -60,6 +60,9 @@ const firstIds = computed(() => new Set(props.firstRecordIds ?? []));
                 <span v-else class="level-name">{{
                   levelMap.get(r.levelId)?.name || "Уровень"
                 }}</span>
+                <small v-if="r.isFirstRk" class="rk-victor"
+                  >Первый РК виктор</small
+                >
               </div>
             </div>
           </td>
@@ -85,9 +88,6 @@ const firstIds = computed(() => new Set(props.firstRecordIds ?? []));
               formatCompletionDate(r.achievedAt)
             }}</time
             ><span v-else>Не указана</span>
-            <small v-if="r.achievedAt && r.dateSource === 'video'"
-              >Публикация видео · МСК</small
-            >
           </td>
           <td class="video-cell">
             <div class="record-actions">
@@ -123,6 +123,10 @@ const firstIds = computed(() => new Set(props.firstRecordIds ?? []));
   </div>
 </template>
 <style scoped lang="scss">
+.rk-victor {
+  color: var(--muted);
+  font-size: 12px;
+}
 .records-wrap {
   border: 1px solid var(--line);
   border-radius: var(--radius);

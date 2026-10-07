@@ -1,6 +1,10 @@
 <script setup lang="ts">
 import type { RegionalFirstVictor } from "#shared/utils/victors";
 import type { Level } from "#shared/types/domain";
+import { hasLevelPage } from "#shared/utils/rating";
+import { formatPosition } from "#shared/utils/presentation";
+import { formatCompletionDate } from "#shared/utils/victors";
+const levelLink = resolveComponent("NuxtLink");
 withDefaults(
   defineProps<{
     levels: Level[];
@@ -8,11 +12,24 @@ withDefaults(
     victors?: Record<number, RegionalFirstVictor[]>;
     completed?: Set<number>;
     first?: Set<number>;
+    results?: Record<
+      number,
+      {
+        percent: number;
+        position: number | null;
+        recordId?: number;
+        video?: string;
+        achievedAt?: string | null;
+        isFirstRk?: boolean;
+      }
+    >;
+    firstRegionLabel?: string;
   }>(),
   {
     victors: () => ({}),
     completed: () => new Set<number>(),
     first: () => new Set<number>(),
+    results: () => ({}),
   },
 );
 const exitDate = (date: string | null) =>
@@ -33,15 +50,21 @@ const exitDate = (date: string | null) =>
       :class="{
         completed: completed.has(level.id),
         first: first.has(level.id),
+        progress: results[level.id] && results[level.id]!.percent < 100,
       }"
     >
-      <NuxtLink
-        :to="`/levels/${level.id}`"
+      <component
+        :is="hasLevelPage(level) ? levelLink : 'div'"
+        :to="hasLevelPage(level) ? `/levels/${level.id}` : undefined"
         class="level-row"
         :class="{ 'top-rank': level.localRank === 1 }"
       >
         <span class="rank">{{
-          level.localRank ? "#" + level.localRank : "—"
+          level.status === "legacy"
+            ? "—"
+            : (results[level.id]?.position ?? level.localRank)
+              ? "#" + (results[level.id]?.position ?? level.localRank)
+              : "—"
         }}</span>
         <span class="thumbnail"><LevelArtwork :level="level" /></span>
         <span class="level-info"
@@ -53,31 +76,63 @@ const exitDate = (date: string | null) =>
             )"
             :key="row.region"
             class="victor-line"
-            ><span>{{ row.region === "spb" ? "СПб" : "ЛО" }}</span>
+            ><span>Первый в {{ row.region === "spb" ? "СПб" : "ЛО" }}</span>
             {{ row.victors.map((v) => v.name).join(", ") }}</small
+          ><small v-if="first.has(level.id) && firstRegionLabel">{{
+            firstRegionLabel
+          }}</small
+          ><small v-if="results[level.id]?.isFirstRk">Первый РК виктор</small
+          ><time
+            v-if="results[level.id]?.achievedAt"
+            :datetime="results[level.id]!.achievedAt!"
+            >{{ formatCompletionDate(results[level.id]!.achievedAt!) }}</time
           ></span
         >
-        <span class="global-rank">{{
-          legacy
-            ? exitDate(level.exitedAt)
-            : level.globalRank
-              ? "#" + level.globalRank + " Global"
-              : "—"
-        }}</span
+        <span class="level-numbers"
+          ><span v-if="results[level.id]" class="result-percent"
+            >{{ formatPosition(results[level.id]!.percent) }}%</span
+          ><span class="global-rank">{{
+            legacy
+              ? exitDate(level.exitedAt)
+              : level.globalRank
+                ? "#" + level.globalRank + " Global"
+                : "—"
+          }}</span></span
         ><AppIcon class="row-chevron" name="chevron" :size="15" />
-      </NuxtLink>
+      </component>
       <div class="row-actions">
-        <EntityEditButton
-          resource="levels"
-          :entity-id="level.id"
-          :label="`Редактировать уровень ${level.name}`"
-          compact
-        /><EntityDeleteButton
-          resource="levels"
-          :entity-id="level.id"
-          :label="`Удалить уровень ${level.name}`"
-          compact
-        />
+        <template v-if="results[level.id]?.recordId"
+          ><a
+            v-if="results[level.id]?.video"
+            :href="results[level.id]!.video"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="record-video"
+            title="Смотреть рекорд"
+            ><AppIcon name="play" :size="17" /></a
+          ><EntityEditButton
+            resource="records"
+            :entity-id="results[level.id]!.recordId"
+            label="Редактировать рекорд"
+            compact /><EntityDeleteButton
+            resource="records"
+            :entity-id="results[level.id]!.recordId!"
+            label="Удалить рекорд"
+            compact
+        /></template>
+        <template v-else>
+          <EntityEditButton
+            resource="levels"
+            :entity-id="level.id"
+            :label="`Редактировать уровень ${level.name}`"
+            compact
+          /><EntityDeleteButton
+            resource="levels"
+            :entity-id="level.id"
+            :label="`Удалить уровень ${level.name}`"
+            compact
+          />
+        </template>
       </div>
     </div>
     <div v-if="!levels.length" class="empty-state">
@@ -114,6 +169,32 @@ const exitDate = (date: string | null) =>
 .level-entry.first {
   box-shadow: inset 4px 0 var(--warm);
 }
+.level-entry.progress {
+  box-shadow: inset 4px 0 var(--accent);
+}
+.level-numbers {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  white-space: nowrap;
+  font-size: 13px;
+}
+.result-percent {
+  color: var(--success);
+  font-size: inherit;
+  font-weight: 600;
+}
+.progress .result-percent {
+  color: var(--accent);
+}
+.level-info time {
+  color: var(--muted);
+  font-size: 12px;
+}
+.record-video {
+  display: inline-flex;
+  padding: 8px;
+}
 .victor-line > span {
   font-weight: 600;
 }
@@ -133,7 +214,7 @@ const exitDate = (date: string | null) =>
   flex: 1;
   min-width: 0;
   display: grid;
-  grid-template-columns: 52px 122px minmax(0, 1fr) auto 15px;
+  grid-template-columns: 52px 134px minmax(0, 1fr) auto 15px;
   gap: 20px;
   align-items: center;
   padding: 19px 22px;
@@ -153,7 +234,7 @@ const exitDate = (date: string | null) =>
   color: var(--accent);
 }
 .thumbnail {
-  height: 73px;
+  aspect-ratio: 16 / 9;
   border-radius: 9px;
   overflow: hidden;
 }
@@ -188,7 +269,7 @@ const exitDate = (date: string | null) =>
   border: 1px solid var(--line);
   border-radius: 7px;
   padding: 4px 9px;
-  font-size: 12px;
+  font-size: inherit;
   color: var(--muted);
   white-space: nowrap;
 }
@@ -204,12 +285,12 @@ const exitDate = (date: string | null) =>
 }
 @media (max-width: 1150px) {
   .level-row {
-    grid-template-columns: 43px 95px minmax(0, 1fr) auto;
+    grid-template-columns: 43px 105px minmax(0, 1fr) auto;
     gap: 14px;
     padding: 16px;
   }
   .thumbnail {
-    height: 64px;
+    height: auto;
   }
   .row-chevron {
     display: none;
@@ -238,17 +319,22 @@ const exitDate = (date: string | null) =>
     justify-content: flex-end;
   }
   .level-row {
-    grid-template-columns: 35px 72px minmax(0, 1fr);
+    grid-template-columns: 79px minmax(0, 1fr) auto;
     gap: 12px;
     padding: 16px 12px;
     min-height: 106px;
     position: relative;
   }
   .thumbnail {
-    height: 58px;
+    height: auto;
+    grid-column: 1;
+    grid-row: 1;
   }
   .rank {
-    font-size: 18px;
+    grid-column: 1;
+    grid-row: 2;
+    font-size: 16px;
+    text-align: center;
   }
   .level-info strong {
     font-size: 15px;
@@ -260,16 +346,28 @@ const exitDate = (date: string | null) =>
   .level-info small {
     font-size: 10px;
   }
+  .victor-line {
+    display: block;
+  }
   .global-rank {
     position: static;
-    grid-column: 3;
     justify-self: start;
-    margin-top: -6px;
+    margin-top: 0;
     padding: 0;
     border: 0;
-    font-size: 10px;
+    font-size: 12px;
+  }
+  .level-numbers {
+    grid-column: 3;
+    grid-row: 1 / span 2;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 5px;
+    font-size: 12px;
   }
   .level-info {
+    grid-column: 2;
+    grid-row: 1 / span 2;
     padding-block: 4px;
   }
   .list-heading {

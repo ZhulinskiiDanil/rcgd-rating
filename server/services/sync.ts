@@ -5,6 +5,7 @@ import {
   CORE,
   SHEET,
   fetchLevels,
+  fetchGameVersion,
   assertGlobalSnapshotSize,
   fetchRecords,
   parseCoreboard,
@@ -17,7 +18,11 @@ import {
   type GlobalRecord,
   type Threshold,
 } from "./sources";
-import { normalizedName, reconcileList } from "../../shared/utils/rating";
+import {
+  normalizedName,
+  reconcileList,
+  withinListBoundary,
+} from "../../shared/utils/rating";
 import type {
   Level,
   Player,
@@ -36,6 +41,34 @@ const coreAliases: Record<number, string> = {
 const sheetAliases: Record<string, number> = { "fever dream": 1652 };
 const safeVideo = (value?: string | null) =>
   value && /^https?:\/\//i.test(value) ? value : "";
+
+export function preserveImportedRecordsOnRebind(
+  playerId: number,
+  previousGdlId: number | null,
+) {
+  const update = db().prepare(
+    `UPDATE records SET manualPercent=?,manualVideo=?,importedPercent=NULL,importedId=NULL,importedVideo='',missing=0,reviewNeeded=0,note=?,updatedAt=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?`,
+  );
+  for (const record of all<RecordEntry>(
+    "SELECT * FROM records WHERE playerId=? AND importedPercent IS NOT NULL",
+    playerId,
+  )) {
+    const importedWins = record.importedPercent! > (record.manualPercent ?? 0);
+    const equalFallback =
+      record.importedPercent === record.manualPercent && !record.manualVideo;
+    const provenance = `Сохранено при смене Global Demonlist: игрок ${previousGdlId ?? "не указан"}, рекорд ${record.importedId ?? "не указан"}, ${record.importedPercent}%, ${record.importedVideo || "без видео"}`;
+    const manualProvenance =
+      importedWins && record.manualPercent !== null
+        ? `Прежний ручной результат: ${record.manualPercent}%, ${record.manualVideo || "без видео"}`
+        : "";
+    update.run(
+      Math.max(record.manualPercent ?? 0, record.importedPercent!),
+      importedWins || equalFallback ? record.importedVideo : record.manualVideo,
+      [record.note, provenance, manualProvenance].filter(Boolean).join("\n"),
+      record.id,
+    );
+  }
+}
 
 function findSheetLevel(raw: string, levels: Level[]) {
   const spelling: Record<string, string> = {
@@ -70,19 +103,30 @@ export function importAchievements(
   for (const entry of entries) {
     let entityId: number;
     if (type === "players") {
-      db()
-        .prepare("INSERT OR IGNORE INTO players(name) VALUES (?)")
-        .run(entry.name);
-      entityId = one<Player>(
+      const matches = all<Player>(
         "SELECT * FROM players WHERE name=?",
         entry.name,
-      )!.id;
+      );
+      if (matches.length > 1 || matches[0]?.deletedAt) {
+        unmatched.push(entry.name);
+        continue;
+      }
+      entityId =
+        matches[0]?.id ??
+        Number(
+          db().prepare("INSERT INTO players(name) VALUES (?)").run(entry.name)
+            .lastInsertRowid,
+        );
     } else {
       const region = /\(ЛО\)/i.test(entry.name) ? "lo" : "spb";
       const name = entry.name.replace(/\s*район(?:\s*\(ЛО\))?$/i, "").trim();
+      const districtName =
+        region === "lo" && ["Гатчинский", "Сосновоборский"].includes(name)
+          ? `${name} городской округ`
+          : name;
       const district = one<District>(
         "SELECT * FROM districts WHERE name=? AND region=?",
-        name,
+        districtName,
         region,
       );
       if (!district) {
@@ -97,7 +141,9 @@ export function importAchievements(
         unmatched.push(`${entry.name}: ${result.name}`);
         continue;
       }
-      if (level.status === "legacy") continue;
+      if (level.status === "legacy" || level.deletedAt || level.listExcluded)
+        continue;
+      if (!withinListBoundary(level, levels)) continue;
       if (type === "players")
         db()
           .prepare(
@@ -203,7 +249,7 @@ export function applyGlobal(
     }
   }
   const upsert = db().prepare(
-    `INSERT INTO levels(gdlId,name,globalRank,creator,video,ingameId,length) VALUES (?,?,?,?,?,?,?) ON CONFLICT(gdlId) DO UPDATE SET name=excluded.name,globalRank=excluded.globalRank,creator=excluded.creator,video=excluded.video,ingameId=excluded.ingameId,length=COALESCE(excluded.length,levels.length)`,
+    `INSERT INTO levels(gdlId,name,globalRank,creator,video,ingameId,length,gameVersion) VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(gdlId) DO UPDATE SET name=excluded.name,globalRank=excluded.globalRank,creator=excluded.creator,video=excluded.video,ingameId=excluded.ingameId,length=COALESCE(excluded.length,levels.length),gameVersion=CASE WHEN levels.gameVersion='' THEN excluded.gameVersion ELSE levels.gameVersion END`,
   );
   for (const l of levels)
     upsert.run(
@@ -214,6 +260,7 @@ export function applyGlobal(
       safeVideo(l.verification_url),
       l.ingame_id ?? null,
       l.length ?? null,
+      l.game_version == null ? "" : String(l.game_version),
     );
   for (const old of existing.values())
     if (!incoming.has(old.gdlId!))
@@ -230,6 +277,8 @@ export function applyGlobal(
       ),
     );
   for (const l of all<Level>("SELECT * FROM levels")) {
+    if (l.thresholdSource === "manual" || l.deletedAt || l.listExcluded)
+      continue;
     const base = normalizedName(l.name);
     const explicit =
       l.thresholdName || (l.gdlId ? coreAliases[l.gdlId] : undefined);
@@ -263,16 +312,18 @@ export function applyGlobal(
 }
 
 export function mergeRecords(playerId: number, incoming: GlobalRecord[]) {
+  if (!one("SELECT id FROM players WHERE id=? AND deletedAt IS NULL", playerId))
+    return;
   const resolvedLevels = new Map(
     reconcileList(dataset()).map((level) => [level.id, level]),
   );
   const levels = new Map(
-    all<Level>("SELECT * FROM levels WHERE gdlId IS NOT NULL").map((l) => [
-      l.gdlId,
-      l.id,
-    ]),
+    all<Level>(
+      "SELECT * FROM levels WHERE gdlId IS NOT NULL AND deletedAt IS NULL AND listExcluded=0",
+    ).map((l) => [l.gdlId, l.id]),
   );
   const best = new Map<number, GlobalRecord>();
+  const eligibleLevels = new Set(levels.values());
   for (const r of incoming) {
     const prior = best.get(r.level.id);
     if (r.status === "accepted" && (!prior || prior.percent < r.percent))
@@ -288,7 +339,13 @@ export function mergeRecords(playerId: number, incoming: GlobalRecord[]) {
     if (!levelId) continue;
     seen.add(levelId);
     const previous = old.find((r) => r.levelId === levelId);
-    if (previous?.deletedAt || resolvedLevels.get(levelId)?.status === "legacy")
+    const resolved = resolvedLevels.get(levelId);
+    if (previous?.deletedAt || resolved?.status === "legacy") continue;
+    if (
+      !previous &&
+      resolved &&
+      !withinListBoundary(resolved, [...resolvedLevels.values()])
+    )
       continue;
     if (
       previous?.importedPercent &&
@@ -336,6 +393,7 @@ export function mergeRecords(playerId: number, incoming: GlobalRecord[]) {
     if (
       record.importedId &&
       !record.deletedAt &&
+      eligibleLevels.has(record.levelId) &&
       resolvedLevels.get(record.levelId)?.status !== "legacy" &&
       !seen.has(record.levelId) &&
       !record.missing
@@ -358,11 +416,11 @@ export function importSheet(names: string[]) {
   const missing: string[] = [];
   for (const raw of names) {
     const match = findSheetLevel(raw, levels);
-    if (match)
+    if (match && !match.deletedAt && !match.listExcluded)
       db()
         .prepare("UPDATE levels SET verifiedLocal=1 WHERE id=?")
         .run(match.id);
-    else {
+    else if (!match) {
       missing.push(raw);
       db()
         .prepare("INSERT INTO levels(name,verifiedLocal) VALUES (?,1)")
@@ -411,6 +469,38 @@ export async function synchronize(actorId: number | null = null) {
       "SELECT COUNT(*) AS count FROM levels WHERE gdlId IS NOT NULL AND globalRank IS NOT NULL",
     )!.count;
     assertGlobalSnapshotSize(previousCount, levels.length);
+    const storedVersions = new Map(
+      all<Level>("SELECT * FROM levels").map((level) => [
+        level.gdlId,
+        level.gameVersion,
+      ]),
+    );
+    const missingVersions = levels.filter(
+      (level) => !level.game_version && !storedVersions.get(level.id),
+    );
+    let versionIndex = 0;
+    let versionFailures = 0;
+    const versionBatch = missingVersions.slice(0, 200);
+    await Promise.all(
+      Array.from({ length: Math.min(3, versionBatch.length) }, async () => {
+        while (versionIndex < versionBatch.length) {
+          const level = versionBatch[versionIndex++]!;
+          try {
+            level.game_version = await fetchGameVersion(level.id);
+          } catch {
+            versionFailures++;
+          }
+        }
+      }),
+    );
+    if (versionFailures)
+      warnings.push(
+        `Не удалось загрузить версии ${versionFailures} уровней; сохранённые значения не изменены`,
+      );
+    if (missingVersions.length > versionBatch.length)
+      warnings.push(
+        `Версии ещё ${missingVersions.length - versionBatch.length} уровней будут загружены при следующих обновлениях`,
+      );
     const globalRanks = new Set(levels.map((level) => level.placement));
     const missingRanks = Array.from({ length: 150 }, (_, i) => i + 1).filter(
       (rank) => !globalRanks.has(rank),
@@ -434,6 +524,7 @@ export async function synchronize(actorId: number | null = null) {
       }
     }
     const records = new Map<number, GlobalRecord[]>();
+    const recordSources = new Map<number, number>();
     const achievementSheets = new Map<"players" | "districts", SheetEntry[]>();
     for (const [type, name] of [
       ["players", "Игроки"],
@@ -455,10 +546,11 @@ export async function synchronize(actorId: number | null = null) {
       }
     }
     for (const p of all<Player>(
-      "SELECT * FROM players WHERE gdlId IS NOT NULL",
+      "SELECT * FROM players WHERE gdlId IS NOT NULL AND deletedAt IS NULL",
     )) {
       try {
         records.set(p.id, await fetchRecords(p.gdlId!));
+        recordSources.set(p.id, p.gdlId!);
       } catch (e) {
         warnings.push(
           `${p.name}: ${e instanceof Error ? e.message : String(e)}`,
@@ -486,7 +578,18 @@ export async function synchronize(actorId: number | null = null) {
         if (missing.length)
           warnings.push(`Не сопоставлены ${type}: ${missing.join(", ")}`);
       }
-      for (const [playerId, values] of records) mergeRecords(playerId, values);
+      for (const [playerId, values] of records) {
+        const current = one<Player>(
+          "SELECT * FROM players WHERE id=?",
+          playerId,
+        );
+        if (
+          current &&
+          !current.deletedAt &&
+          current.gdlId === recordSources.get(playerId)
+        )
+          mergeRecords(playerId, values);
+      }
       refreshRecordDates(videoDates.dates, actorId);
       if (thresholds)
         db()

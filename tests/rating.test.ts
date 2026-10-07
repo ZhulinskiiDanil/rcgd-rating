@@ -1,11 +1,12 @@
 import { describe, it, expect } from "vitest";
 import {
-  weightedTop,
+  geometricTop,
   progressPosition,
   playerRating,
   districtRating,
   completedLevels,
   hypotheticalPosition,
+  reconcileList,
 } from "../shared/utils/rating";
 import type {
   DataSet,
@@ -84,22 +85,118 @@ const data = (): DataSet => ({
   extras: [],
 });
 describe("Рейтинг", () => {
+  it("сохраняет историю Legacy при мягком удалении и восстановлении уровня", () => {
+    const d = data();
+    d.levels = [
+      { ...level(1, 10), name: "Mika" },
+      {
+        ...level(2, 11),
+        status: "legacy",
+        enteredAt: "2026-09-01",
+        exitedAt: "2026-09-20",
+        lastMainRank: 127,
+        exitReason: "Ниже Mika",
+        listExcluded: 1,
+        deletedAt: "2026-10-07",
+      },
+    ];
+    const archived = { ...d.levels[1] };
+    d.levels = reconcileList(d, "2026-10-08");
+    expect(d.levels[1]).toEqual(archived);
+    d.levels[1]!.deletedAt = null;
+    d.levels[1]!.listExcluded = 0;
+    d.levels = reconcileList(d, "2026-10-09");
+    expect(d.levels[1]).toMatchObject({
+      status: "legacy",
+      exitedAt: "2026-09-20",
+      lastMainRank: 127,
+    });
+  });
+  it("сохраняет бывший листовый уровень ниже Mika в Legacy без очков и без удаления рекордов", () => {
+    const d = data();
+    d.levels = [
+      { ...level(1, 10), name: "Mika", status: "main", localRank: 1 },
+      { ...level(2, 11), status: "main", localRank: 2, lastMainRank: 2 },
+      { ...level(3, 12), verifiedLocal: 0 },
+    ];
+    d.records = [record(1, 1, 2, 100), record(2, 1, 3, 95)];
+    const snapshot = JSON.stringify(d.records);
+    d.levels = reconcileList(d, "2026-10-07T00:00:00Z");
+    expect(d.levels[1]).toMatchObject({
+      status: "legacy",
+      localRank: null,
+      lastMainRank: 2,
+      exitedAt: "2026-10-07T00:00:00Z",
+      exitReason: "Ниже Mika",
+    });
+    expect(completedLevels(d).map((item) => item.id)).toEqual([1]);
+    expect(playerRating(d, 1).score).toBe(150);
+    expect(districtRating(d, 1).score).toBe(150);
+    expect(JSON.stringify(d.records)).toBe(snapshot);
+    d.levels[1]!.globalRank = 9;
+    d.levels = reconcileList(d, "2026-10-08T00:00:00Z");
+    expect(d.levels[1]).toMatchObject({
+      status: "main",
+      localRank: 1,
+      exitedAt: null,
+    });
+    expect(playerRating(d, 1).top[0]?.levelId).toBe(2);
+  });
+  it("допускает ручной уровень без глобальной позиции и исключает удалённые достижения района", () => {
+    const d = data();
+    d.levels = [
+      { ...level(1, 10), name: "Mika" },
+      { ...level(2), globalRank: null, manualPosition: 1, verifiedLocal: 0 },
+    ];
+    d.extras = [
+      {
+        id: 1,
+        districtId: 1,
+        levelId: 2,
+        note: "",
+        achievedAt: null,
+        deletedAt: "2026-10-07T00:00:00Z",
+      },
+    ];
+    expect(completedLevels(d).map((item) => item.id)).toEqual([1]);
+    expect(districtRating(d, 1).score).toBe(150);
+    d.extras[0]!.deletedAt = null;
+    expect(completedLevels(d).map((item) => item.id)).toEqual([2, 1]);
+    expect(districtRating(d, 1).top[0]?.position).toBe(1);
+  });
+  it("удалённый игрок не влияет на лист и район, скрытый сохраняет свой вклад", () => {
+    const d = data();
+    d.levels = [{ ...level(1), verifiedLocal: 0 }];
+    d.records = [record(1, 1, 1, 100)];
+    d.players[0]!.deletedAt = "2026-10-07T00:00:00Z";
+    expect(completedLevels(d)).toEqual([]);
+    expect(playerRating(d, 1).score).toBe(150);
+    expect(districtRating(d, 1).score).toBe(150);
+    d.players[0]!.deletedAt = null;
+    d.players[0]!.hidden = 1;
+    expect(completedLevels(d)).toHaveLength(1);
+    expect(playerRating(d, 1).score).toBeLessThan(150);
+    expect(districtRating(d, 1).score).toBeLessThan(150);
+  });
   it("пустые результаты дают ровно 150", () =>
-    expect(weightedTop([]).score).toBe(150));
-  it("применяет шесть заданных весов, отбрасывая седьмой", () => {
+    expect(geometricTop([]).score).toBe(150));
+  it("считает геометрическое среднее шести наименьших позиций, отбрасывая наибольшую", () => {
     const d = data();
     d.records = Array.from({ length: 7 }, (_, i) =>
       record(i + 1, 1, i + 1, 100),
     );
     expect(playerRating(d, 1).score).toBeCloseTo(
-      (10 + 18 + 24 + 28 + 25 + 18) / 42,
+      (1 * 2 * 3 * 4 * 5 * 6) ** (1 / 6),
     );
     expect(playerRating(d, 1).top).toHaveLength(6);
+    expect(playerRating(d, 1).top.map((result) => result.position)).toEqual([
+      1, 2, 3, 4, 5, 6,
+    ]);
   });
   it("дополняет отсутствующие результаты значением 150", () => {
     const d = data();
     d.records = [record(1, 1, 1, 100)];
-    expect(playerRating(d, 1).score).toBeCloseTo((10 + 150 * 32) / 42);
+    expect(playerRating(d, 1).score).toBeCloseTo((1 * 150 ** 5) ** (1 / 6));
   });
   it("даёт 4h на лист-проценте и 2h на эндинге", () => {
     expect(progressPosition(10, 50, 50, 90)).toBeCloseTo(40);
