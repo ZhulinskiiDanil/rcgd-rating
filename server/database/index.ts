@@ -8,6 +8,8 @@ import { migrateRegionalVictors } from "./regional-victors";
 import { migrateHistoryEditing } from "./history-editing";
 import { migrateMikaPurge } from "./mika-purge";
 import { migrateHistoryCorrections } from "./history-corrections";
+import { migrateRatingHistory } from "./rating-history";
+import { migrateRecordControls } from "./record-controls";
 import {
   migrateMedia,
   migrateRecordDates,
@@ -68,6 +70,8 @@ export function db() {
     migrateHistoryEditing(connection);
     migrateMikaPurge(connection);
     migrateHistoryCorrections(connection);
+    migrateRatingHistory(connection);
+    migrateRecordControls(connection);
     const cities = [
       "Адмиралтейский",
       "Василеостровский",

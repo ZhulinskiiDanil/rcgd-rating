@@ -251,6 +251,20 @@ try {
     },
   });
   assert.equal(player.status, 200, JSON.stringify(player.value));
+  const newlyCreatedPlayer = (
+    await call("/api/admin", { cookie: admin })
+  ).value.players.find((row) => row.id === player.value.id);
+  assert.equal(
+    newlyCreatedPlayer.hidden,
+    1,
+    "New players remain hidden until their records are ready",
+  );
+  assert.equal(
+    (await call("/api/catalog")).value.players.find(
+      (row) => row.id === player.value.id,
+    ).rank,
+    null,
+  );
   const accountRow = (
     await call("/api/admin", { cookie: admin })
   ).value.accounts.find((account) => account.id === me.id);
@@ -344,6 +358,7 @@ try {
     gdlId: null,
     accountId: me.id,
     bio: "Test",
+    hidden: false,
   };
   assert.equal(
     (
@@ -496,7 +511,6 @@ try {
       manualVideo: "https://example.com/video",
       achievedAt: null,
       note: "Private test note",
-      reviewNeeded: false,
     },
   });
   assert.equal(record.status, 200, JSON.stringify(record.value));
@@ -536,7 +550,6 @@ try {
     active: true,
     manualVideo: "https://example.com/video",
     note: "Private test note",
-    reviewNeeded: false,
   };
   assert.equal(
     (
@@ -589,6 +602,50 @@ try {
   assert.equal(automatic.achievedAt, null);
   assert.equal(automatic.dateSource, null);
   assert.equal(automatic.sourceVideo, "");
+  assert.equal(automatic.isFirstSpb, 1);
+  assert.equal(automatic.isFirstLo, 0);
+  for (const [flags, expected] of [
+    [
+      { isVerifier: true, isFirstSpb: false },
+      { isVerifier: 1, firstVictorOverride: 0, isFirstSpb: 0 },
+    ],
+    [
+      { isVerifier: true, isFirstSpb: true },
+      { isVerifier: 1, firstVictorOverride: 1, isFirstSpb: 1 },
+    ],
+    [
+      { isVerifier: false },
+      { isVerifier: 0, firstVictorOverride: 0, isFirstSpb: 1 },
+    ],
+  ]) {
+    const edited = await call("/api/admin/records", {
+      method: "POST",
+      cookie: admin,
+      body: { ...recordFields, ...flags },
+    });
+    assert.equal(edited.status, 200, JSON.stringify(edited.value));
+    const current = (await call("/api/catalog")).value.records.find(
+      (row) => row.id === record.value.id,
+    );
+    for (const [key, value] of Object.entries(expected))
+      assert.equal(current[key], value, key);
+    if (flags.isVerifier)
+      assert.ok(
+        (await call(`/levels/${fakeLevel.value.id}`)).value.includes("Верифер"),
+      );
+  }
+  const adminLevelPage = await call(`/levels/${fakeLevel.value.id}`, {
+    cookie: admin,
+  });
+  assert.ok(adminLevelPage.value.includes("Редактировать уровень"));
+  const visitorLevelPage = await call(`/levels/${fakeLevel.value.id}`, {
+    cookie: `${admin}; spb-view-as-user=true`,
+  });
+  assert.ok(!visitorLevelPage.value.includes("Редактировать уровень"));
+  assert.ok(
+    visitorLevelPage.value.includes('href="/admin"'),
+    "View as user keeps the admin navigation button",
+  );
   const catalog = (await call("/api/catalog")).value;
   assert.equal(catalog.players.length, 1);
   assert.equal(catalog.records.length, 1);
@@ -1103,6 +1160,12 @@ try {
         .get(event.id).n,
       0,
     );
+    assert.equal(
+      historyCheck
+        .prepare("SELECT COUNT(*) n FROM ratingHistory WHERE changeId=?")
+        .get(event.id).n,
+      0,
+    );
     const exportText = (await call("/api/export/history.csv")).value;
     const privateEvent = historyCheck
       .prepare(
@@ -1114,11 +1177,170 @@ try {
     historyCheck.close();
   }
   assert.equal(
+    (
+      await call(`/api/admin/records/${record.value.id}?permanent=true`, {
+        method: "DELETE",
+        cookie: personal.cookie,
+      })
+    ).status,
+    403,
+  );
+  assert.equal(
+    (
+      await call(`/api/admin/records/${record.value.id}?permanent=true`, {
+        method: "DELETE",
+        cookie: admin,
+      })
+    ).status,
+    200,
+  );
+  assert.equal(
+    (
+      await call("/api/admin/restore", {
+        method: "POST",
+        cookie: admin,
+        body: { resource: "records", id: record.value.id },
+      })
+    ).status,
+    404,
+  );
+  const permanentCheck = new Database(databasePath, { readonly: true });
+  assert.equal(
+    permanentCheck
+      .prepare("SELECT COUNT(*) n FROM records WHERE id=?")
+      .get(record.value.id).n,
+    0,
+  );
+  assert.equal(
+    permanentCheck
+      .prepare(
+        "SELECT COUNT(*) n FROM deletedRecordImports WHERE playerId=? AND levelId=?",
+      )
+      .get(player.value.id, fakeLevel.value.id).n,
+    1,
+  );
+  permanentCheck.close();
+  assert.equal((await call("/api/admin/audit")).status, 401);
+  assert.equal((await call("/api/admin/audit", { cookie: admin })).status, 200);
+  assert.equal(
+    (
+      await call("/api/admin/accounts", {
+        method: "POST",
+        cookie: admin,
+        body: { id: recoveryId, permissions: ["records:write"] },
+      })
+    ).status,
+    200,
+  );
+  assert.equal(
+    (await call("/api/admin/audit", { cookie: personal.cookie })).status,
+    403,
+    "Ordinary administrators cannot read the audit log",
+  );
+  assert.equal(
+    (
+      await call("/api/admin/account-password", {
+        method: "POST",
+        cookie: personal.cookie,
+        body: { id: adminId },
+      })
+    ).status,
+    403,
+  );
+  const seniorAccount = await call("/api/auth/register", {
+    method: "POST",
+    body: { login: "senior-smoke", password },
+  });
+  assert.equal(seniorAccount.status, 200, JSON.stringify(seniorAccount.value));
+  const seniorCookie = seniorAccount.cookie;
+  const seniorId = (await call("/api/auth/me", { cookie: seniorCookie })).value
+    .id;
+  assert.equal(
+    (
+      await call("/api/admin/accounts", {
+        method: "POST",
+        cookie: admin,
+        body: {
+          id: seniorId,
+          seniorAdmin: true,
+          adminContact: "https://discord.com/users/123456789",
+        },
+      })
+    ).status,
+    200,
+  );
+  const seniorAudit = await call("/api/admin/audit", { cookie: seniorCookie });
+  assert.equal(seniorAudit.status, 200);
+  assert.ok(seniorAudit.value.items.length > 0);
+  assert.ok(
+    seniorAudit.value.items.every(
+      (item) => !("beforeJson" in item) && !("afterJson" in item),
+    ),
+  );
+  assert.ok(!JSON.stringify(seniorAudit.value).includes("passwordHash"));
+  assert.equal(
+    (
+      await call("/api/admin/accounts", {
+        method: "POST",
+        cookie: seniorCookie,
+        body: { id: seniorId, headAdmin: true },
+      })
+    ).status,
+    403,
+  );
+  const seniorMember = (await call("/api/administration")).value.find(
+    (row) => row.id === seniorId,
+  );
+  assert.equal(seniorMember.seniorAdmin, 1);
+  assert.equal(
+    seniorMember.adminContact,
+    "https://discord.com/users/123456789",
+  );
+  assert.equal(
+    (
+      await call("/api/admin/accounts", {
+        method: "POST",
+        cookie: admin,
+        body: { id: recoveryId, headAdmin: true },
+      })
+    ).status,
+    200,
+  );
+  const recoveredHead = await call("/api/admin/account-password", {
+    method: "POST",
+    cookie: seniorCookie,
+    body: { id: recoveryId },
+  });
+  assert.equal(recoveredHead.status, 200, JSON.stringify(recoveredHead.value));
+  assert.equal(
+    Boolean((await call("/api/auth/me", { cookie: personal.cookie })).value),
+    false,
+  );
+  const headRecoveryLogin = await call("/api/auth/login", {
+    method: "POST",
+    body: recoveredHead.value,
+  });
+  assert.equal(headRecoveryLogin.status, 200);
+  assert.equal(
+    (await call("/api/auth/me", { cookie: headRecoveryLogin.cookie })).value
+      .passwordResetRequired,
+    true,
+  );
+  const recoveryAudit = await call(
+    `/api/admin/audit?actorId=${seniorId}&kind=password-recovery`,
+    { cookie: admin },
+  );
+  assert.equal(recoveryAudit.status, 200);
+  assert.equal(recoveryAudit.value.items.length, 1);
+  assert.ok(
+    !JSON.stringify(recoveryAudit.value).includes(recoveredHead.value.password),
+  );
+  assert.equal(
     (await call("/api/auth/logout", { method: "POST", cookie: admin })).status,
     200,
   );
   console.log(
-    "HTTP smoke passed: public pages, 75/75 list, custom levels, nickname, inactive players, Legacy editing, soft deletion/restoration, CSV exports, history, records, CSRF, permissions, disabled account, logout.",
+    "HTTP smoke passed: public pages, 75/75 list, hidden new players, verifier/first flags, visitor preview, Legacy editing, permanent deletion, linked history, senior permissions, audit access, head password recovery, CSRF, account sessions.",
   );
 } catch (error) {
   console.error(output);

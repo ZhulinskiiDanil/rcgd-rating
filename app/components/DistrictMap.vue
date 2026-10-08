@@ -24,6 +24,7 @@ interface MapData {
 const props = defineProps<{
   districts: RankedDistrict[];
   focusDistrictId?: number;
+  staticView?: boolean;
 }>();
 const emit = defineEmits<{ select: [districtId: number] }>();
 const selectId = useId();
@@ -110,6 +111,7 @@ const score = (value: number) =>
   });
 
 function zoomAt(factor: number) {
+  if (props.staticView) return;
   const [x, y, width, height] = view.value;
   const nextWidth = Math.min(
     data.value?.viewBox[2] ?? 1000,
@@ -127,6 +129,7 @@ function zoomAt(factor: number) {
   ]);
 }
 function choose(id: number | null, focus = false) {
+  if (props.staticView) return;
   selectedId.value = id;
   const feature = mapped.value.find((item) => item.osmId === id);
   if (feature?.district) emit("select", feature.district.id);
@@ -137,7 +140,7 @@ function selectFromList(event: Event) {
   choose(value ? Number(value) : null, true);
 }
 function pointerDown(event: PointerEvent) {
-  if (event.button !== 0 || pointer || !svg.value) return;
+  if (props.staticView || event.button !== 0 || pointer || !svg.value) return;
   const rectangle = svg.value.getBoundingClientRect();
   const target =
     event.target instanceof Element
@@ -187,11 +190,12 @@ function pointerCancel() {
   dragging.value = false;
 }
 function wheel(event: WheelEvent) {
-  if (!event.ctrlKey && !event.metaKey) return;
+  if (props.staticView || (!event.ctrlKey && !event.metaKey)) return;
   event.preventDefault();
   zoomAt(event.deltaY < 0 ? 1.15 : 1 / 1.15);
 }
 function keyboard(event: KeyboardEvent) {
+  if (props.staticView) return;
   const [x, y, width, height] = view.value;
   const movements: Record<string, Bounds> = {
     ArrowLeft: [x - width / 8, y, width, height],
@@ -219,9 +223,10 @@ function keyboard(event: KeyboardEvent) {
 <template>
   <section
     class="district-map"
+    :class="{ 'static-map': staticView }"
     aria-label="Карта районов Санкт-Петербурга и Ленинградской области"
   >
-    <div class="map-heading">
+    <div v-if="!staticView" class="map-heading">
       <div>
         <h2>На карте</h2>
         <p>Один город и область. Найди свой район.</p>
@@ -232,11 +237,13 @@ function keyboard(event: KeyboardEvent) {
     </div>
     <div v-if="error" class="map-error" role="alert">
       <p>Не удалось загрузить границы районов.</p>
-      <button type="button" @click="refresh()">Попробовать снова</button>
+      <button v-if="!staticView" type="button" @click="refresh()">
+        Попробовать снова
+      </button>
     </div>
     <div v-else-if="data" class="map-layout">
       <div class="map-canvas">
-        <div class="map-controls">
+        <div v-if="!staticView" class="map-controls">
           <div>
             <button type="button" @click="reset">Весь регион</button
             ><button type="button" @click="fit(data.cityBounds)">
@@ -266,9 +273,13 @@ function keyboard(event: KeyboardEvent) {
           ref="svg"
           :viewBox="view.join(' ')"
           :class="{ dragging }"
-          role="group"
-          aria-label="Интерактивная карта. Стрелки перемещают карту, плюс и минус меняют масштаб, Home показывает весь регион."
-          tabindex="0"
+          :role="staticView ? 'img' : 'group'"
+          :aria-label="
+            staticView
+              ? `Расположение района ${focusedFeature?.name ?? ''}`
+              : 'Интерактивная карта. Стрелки перемещают карту, плюс и минус меняют масштаб, Home показывает весь регион.'
+          "
+          :tabindex="staticView ? undefined : 0"
           @pointerdown="pointerDown"
           @pointermove="pointerMove"
           @pointerup="pointerUp"
@@ -293,9 +304,11 @@ function keyboard(event: KeyboardEvent) {
             ]"
             fill-rule="evenodd"
             vector-effect="non-scaling-stroke"
-            role="button"
-            tabindex="0"
-            :aria-pressed="selectedId === feature.osmId"
+            :role="staticView ? undefined : 'button'"
+            :tabindex="staticView ? undefined : 0"
+            :aria-pressed="
+              staticView ? undefined : selectedId === feature.osmId
+            "
             :aria-label="`${feature.name}, ${regionName(feature.region)}. ${feature.district?.completionCount || 0} пройденных уровней в топ-150.`"
             @pointerenter="hoveredId = feature.osmId"
             @focus="hoveredId = feature.osmId"
@@ -306,17 +319,17 @@ function keyboard(event: KeyboardEvent) {
             <title>{{ feature.name }} · {{ regionName(feature.region) }}</title>
           </path>
         </svg>
-        <div class="map-caption" aria-hidden="true">
+        <div v-if="!staticView" class="map-caption" aria-hidden="true">
           <strong v-if="hovered">{{ hovered.name }}</strong
           ><span v-else>Выбери район на карте</span
           ><span>Перетаскивай карту · Ctrl + прокрутка — масштаб</span>
         </div>
-        <div class="map-legend">
+        <div v-if="!staticView" class="map-legend">
           <span><i class="populated"></i>Есть прохождения в топ-150</span
           ><span><i></i>Нет прохождений в топ-150</span>
         </div>
       </div>
-      <aside class="map-sidebar">
+      <aside v-if="!staticView" class="map-sidebar">
         <label :for="selectId">Выбрать район</label>
         <select
           :id="selectId"
@@ -409,7 +422,8 @@ function keyboard(event: KeyboardEvent) {
         target="_blank"
         rel="noopener noreferrer"
         >ODbL</a
-      >. <a href="/geo/districts.json" download>Данные карты</a>
+      >.
+      <a v-if="!staticView" href="/geo/districts.json" download>Данные карты</a>
     </p>
   </section>
 </template>
@@ -495,6 +509,20 @@ function keyboard(event: KeyboardEvent) {
   outline-offset: -4px;
   &.dragging {
     cursor: grabbing;
+  }
+}
+.static-map {
+  .map-layout {
+    grid-template-columns: 1fr;
+  }
+  .map-canvas > svg {
+    height: clamp(232.5px, 30vw, 435px);
+    touch-action: auto;
+    cursor: default;
+  }
+  .district-shape {
+    pointer-events: none;
+    cursor: default;
   }
 }
 .district-shape {
@@ -727,6 +755,9 @@ function keyboard(event: KeyboardEvent) {
   }
   .map-canvas > svg {
     height: 350px;
+  }
+  .static-map .map-canvas > svg {
+    height: 262.5px;
   }
   .map-invitation {
     padding-top: 24px;

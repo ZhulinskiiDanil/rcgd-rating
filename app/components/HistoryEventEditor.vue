@@ -13,17 +13,19 @@ interface HistoryEvent {
   toTier?: string | null;
 }
 const props = defineProps<{
-  type: "changes" | "levels";
+  type: "changes" | "levels" | "ratings";
   event: HistoryEvent;
 }>();
 const emit = defineEmits<{ saved: [] }>();
+const { showAdminControls } = useAdminView();
 const { data: account } = useNuxtData<{
   user: { headAdmin: boolean; permissions: Permission[] } | null;
 }>("account");
 const allowed = computed(
   () =>
-    account.value?.user?.headAdmin ||
-    account.value?.user?.permissions.includes("history:write"),
+    showAdminControls.value &&
+    (account.value?.user?.headAdmin ||
+      account.value?.user?.permissions.includes("history:write")),
 );
 const editing = ref(false),
   deleting = ref(false),
@@ -97,7 +99,13 @@ async function submit(remove = false) {
           createdAt,
           ...(props.type === "changes"
             ? { title: title.value }
-            : { note: note.value, ...positions }),
+            : props.type === "ratings"
+              ? {
+                  note: note.value,
+                  fromRank: positions.fromRank,
+                  toRank: positions.toRank,
+                }
+              : { note: note.value, ...positions }),
         };
     await $fetch(`/api/admin/history/${props.type}/${props.event.id}`, {
       method: remove ? "DELETE" : "PATCH",
@@ -143,7 +151,7 @@ async function submit(remove = false) {
             :disabled="busy"
           >
             <legend>{{ side === "from" ? "Было" : "Стало" }}</legend>
-            <label
+            <label v-if="type === 'levels'"
               >Раздел<select
                 v-model="positions[`${side}Tier`]"
                 @change="changeTier(side)"
@@ -159,17 +167,35 @@ async function submit(remove = false) {
             >
             <label
               v-if="
+                type === 'ratings' ||
                 positions[`${side}Tier`] === 'main' ||
                 positions[`${side}Tier`] === 'extended'
               "
               >Позиция<input
                 v-model.number="positions[`${side}Rank`]"
                 type="number"
-                :min="positions[`${side}Tier`] === 'main' ? 1 : 76"
-                :max="positions[`${side}Tier`] === 'main' ? 75 : 150"
+                :min="
+                  type === 'ratings' || positions[`${side}Tier`] === 'main'
+                    ? 1
+                    : 76
+                "
+                :max="
+                  type === 'ratings'
+                    ? undefined
+                    : positions[`${side}Tier`] === 'main'
+                      ? 75
+                      : 150
+                "
                 step="1"
-                required
+                :required="type !== 'ratings'"
             /></label>
+            <button
+              v-if="type === 'ratings'"
+              type="button"
+              @click="positions[`${side}Rank`] = null"
+            >
+              Вне рейтинга
+            </button>
           </fieldset>
         </div>
         <label
@@ -197,11 +223,17 @@ async function submit(remove = false) {
       <div v-if="deleting" class="delete-confirm" role="alert">
         <p>
           Удалить событие из
-          {{ type === "changes" ? "общей истории" : "истории этого уровня" }}?
+          {{
+            type === "changes"
+              ? "общей истории"
+              : type === "levels"
+                ? "истории этого уровня"
+                : "истории рейтинга"
+          }}?
         </p>
         <p v-if="type === 'changes'">
-          Все записи истории уровней, вызванные этим событием, будут удалены
-          безвозвратно.
+          Все записи истории уровней, игроков и районов, вызванные этим
+          событием, будут удалены безвозвратно.
         </p>
         <div class="actions">
           <button

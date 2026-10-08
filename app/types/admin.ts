@@ -48,6 +48,8 @@ export interface AdminData extends DataSet {
     playerName: string | null;
     avatarLocked: number;
     headAdmin: number;
+    seniorAdmin: number;
+    adminContact: string;
     disabled: number;
     permissions: string[];
     avatarUrl: string;

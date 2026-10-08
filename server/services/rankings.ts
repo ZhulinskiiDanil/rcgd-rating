@@ -22,10 +22,11 @@ export function rankings(data: DataSet = dataset()): {
       id: number;
       avatar: string | null;
       headAdmin: number;
+      seniorAdmin: number;
       permissions: string;
       disabled: number;
     }>(
-      "SELECT id,headAdmin,permissions,disabled, COALESCE(NULLIF(avatarUrl,''),NULLIF(discordAvatar,''),NULLIF(googleAvatar,'')) AS avatar FROM accounts",
+      "SELECT id,headAdmin,seniorAdmin,permissions,disabled, COALESCE(NULLIF(avatarUrl,''),NULLIF(discordAvatar,''),NULLIF(googleAvatar,'')) AS avatar FROM accounts",
     ).map((a) => [a.id, a]),
   );
   data = {
@@ -86,14 +87,20 @@ export function rankings(data: DataSet = dataset()): {
         account && !account.disabled
           ? account.headAdmin
             ? ("head-admin" as const)
-            : JSON.parse(account.permissions).length
-              ? ("admin" as const)
-              : null
+            : account.seniorAdmin
+              ? ("senior-admin" as const)
+              : JSON.parse(account.permissions).length
+                ? ("admin" as const)
+                : null
           : null,
     };
   });
   const playerRanks = new Map(
-    rankEntries(players.filter((p) => !p.hidden)).map((p) => [p.id, p.rank]),
+    rankEntries(
+      players.filter(
+        (p) => !p.hidden && p.top.some((result) => result.kind !== "empty"),
+      ),
+    ).map((p) => [p.id, p.rank]),
   );
   return {
     players: players

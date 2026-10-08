@@ -65,7 +65,12 @@ export function useAdminSchemas(data: Ref<AdminData | null | undefined>) {
             })) ?? [],
         },
         { key: "bio", label: "Описание", type: "textarea" },
-        { key: "hidden", label: "Скрыть в рейтинге игроков", type: "checkbox" },
+        {
+          key: "hidden",
+          label: "Скрыть в рейтинге игроков",
+          type: "checkbox",
+          default: true,
+        },
         {
           key: "inactive",
           label: "Неактивный игрок — выделять красным",
@@ -273,15 +278,10 @@ export function useAdminSchemas(data: Ref<AdminData | null | undefined>) {
           default: true,
         },
         {
-          key: "reviewNeeded",
-          label: "Нужна проверка после исчезновения из глобала",
+          key: "isVerifier",
+          label: "Верифер",
           type: "checkbox",
-        },
-        {
-          key: "discardImported",
-          label: "Убрать сохранённый результат из глобала",
-          type: "checkbox",
-          help: "Для исправления исчезнувшего или пониженного рекорда. Актуальный принятый результат может вернуться при следующем импорте.",
+          help: "Оригинальная верификация уровня. По умолчанию не считается первым региональным виктором; при необходимости включи соответствующую отметку ниже.",
         },
         { key: "isFirstRk", label: "Первый РК виктор", type: "checkbox" },
         {
@@ -289,14 +289,14 @@ export function useAdminSchemas(data: Ref<AdminData | null | undefined>) {
           label: "Первый СПб виктор",
           type: "checkbox",
           visibleWhen: { key: "playerId", values: regionPlayers("spb") },
-          help: "Ручная отметка первого виктора имеет приоритет над датами прохождений.",
+          help: "Определяется автоматически по самой ранней дате. Для верификатора можно включить вручную.",
         },
         {
           key: "isFirstLo",
           label: "Первый ЛО виктор",
           type: "checkbox",
           visibleWhen: { key: "playerId", values: regionPlayers("lo") },
-          help: "Ручная отметка первого виктора имеет приоритет над датами прохождений.",
+          help: "Определяется автоматически по самой ранней дате. Для верификатора можно включить вручную.",
         },
       ],
       columns: [
@@ -306,7 +306,6 @@ export function useAdminSchemas(data: Ref<AdminData | null | undefined>) {
         { key: "manualPercent", label: "Вручную %" },
         { key: "importedPercent", label: "Глобал %" },
         { key: "active", label: "Активен" },
-        { key: "reviewNeeded", label: "Проверка" },
       ],
       rows:
         data.value?.records.map((r) => ({
@@ -366,13 +365,19 @@ export function useAdminSchemas(data: Ref<AdminData | null | undefined>) {
         },
         { key: "headAdmin", label: "Главный администратор", type: "checkbox" },
         {
-          key: "avatarLocked",
-          label: "Запретить пользователю менять аватар",
+          key: "seniorAdmin",
+          label: "Старший администратор",
           type: "checkbox",
+          help: "Доступ к журналу действий и восстановлению паролей, включая главного администратора. Разделы редактирования определяются разрешениями ниже; назначать роли может только главный.",
         },
         {
-          key: "unlinkDiscord",
-          label: "Отвязать потерянный Discord",
+          key: "adminContact",
+          label: "Контакт для страницы администрации",
+          help: "Например, @ник или ссылка. Если контакта нет, оставьте поле пустым.",
+        },
+        {
+          key: "avatarLocked",
+          label: "Запретить пользователю менять аватар",
           type: "checkbox",
         },
         {
@@ -414,6 +419,7 @@ export function useAdminSchemas(data: Ref<AdminData | null | undefined>) {
         { key: "login", label: "Логин" },
         { key: "playerName", label: "Профиль игрока" },
         { key: "headAdmin", label: "Главный администратор" },
+        { key: "seniorAdmin", label: "Старший администратор" },
         { key: "permissions", label: "Разрешения" },
         { key: "disabled", label: "Отключён" },
       ],

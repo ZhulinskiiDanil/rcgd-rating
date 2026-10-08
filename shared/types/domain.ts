@@ -84,6 +84,8 @@ export interface RecordEntry {
   isFirstRk?: number;
   isFirstSpb?: number;
   isFirstLo?: number;
+  isVerifier?: number;
+  firstVictorOverride?: number;
   updatedAt: string;
 }
 export interface DistrictExtra {
@@ -103,6 +105,8 @@ export interface Account {
   sessionKey: string;
   avatarLocked: number;
   headAdmin: number;
+  seniorAdmin?: number;
+  adminContact?: string;
   permissions: Permission[];
   disabled: number;
   discordAvatar: string | null;
@@ -130,7 +134,7 @@ export interface Ranking {
 }
 export interface RankedPlayer extends Player, Ranking {
   rank: number | null;
-  role?: "head-admin" | "admin" | null;
+  role?: "head-admin" | "senior-admin" | "admin" | null;
   districtName: string | null;
   avatar: string | null;
 }

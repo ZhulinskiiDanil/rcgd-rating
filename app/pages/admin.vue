@@ -4,12 +4,17 @@ import type { Permission } from "#shared/types/domain";
 const { data: session } = await useAccount();
 const user = computed(() => session.value?.user);
 if (!user.value) await navigateTo("/login");
-else if (!user.value.headAdmin && !user.value.permissions.length)
+else if (
+  !user.value.headAdmin &&
+  !user.value.seniorAdmin &&
+  !user.value.permissions.length
+)
   throw createError({
     statusCode: 403,
     statusMessage: "Нет прав на администрирование",
   });
 const { data, refresh, error: loadError } = await useFetch("/api/admin");
+const { viewAsUser } = useAdminView();
 const can = (p: Permission) =>
   !!user.value?.headAdmin || !!user.value?.permissions.includes(p);
 const tabs = computed(() => [
@@ -29,6 +34,12 @@ const tabs = computed(() => [
   ...(user.value?.headAdmin
     ? [{ key: "accounts", label: "Аккаунты и права" }]
     : []),
+  ...(!user.value?.headAdmin && user.value?.seniorAdmin
+    ? [{ key: "recovery", label: "Восстановление аккаунтов" }]
+    : []),
+  ...(user.value?.headAdmin || user.value?.seniorAdmin
+    ? [{ key: "audit", label: "Действия администраторов" }]
+    : []),
   ...(can("sync:run") ? [{ key: "sync", label: "Синхронизация" }] : []),
 ]);
 const tab = ref(tabs.value[0]?.key || "");
@@ -40,7 +51,7 @@ const dateBusy = ref(false),
   dateError = ref("");
 const schemas = useAdminSchemas(data);
 const editor = computed(() =>
-  ["sync", "coreboard"].includes(tab.value)
+  ["sync", "coreboard", "audit", "recovery"].includes(tab.value)
     ? undefined
     : schemas.value[tab.value as EntityResource],
 );
@@ -54,6 +65,9 @@ const sectionInfo: Record<string, string> = {
     "Подтверждённые прохождения района без привязки к конкретному игроку.",
   news: "Новости сообщества для публичной ленты изменений.",
   accounts: "Аккаунты пользователей и доступ к разделам сайта.",
+  recovery:
+    "Выдача временного пароля с обязательной сменой при следующем входе.",
+  audit: "Изменения данных и действия администрации. Время по Москве.",
   coreboard:
     "Листовые и эндинг-проценты, ручные значения и новые уровни глобального топ-150.",
   sync: "Обновления глобальных позиций, процентов и принятых рекордов.",
@@ -133,11 +147,19 @@ async function syncDates() {
         ><AppIcon name="shield" :size="18" /><span
           >{{ user?.login
           }}<small>{{
-            user?.headAdmin ? "Главный администратор" : "Администрация"
+            user?.headAdmin
+              ? "Главный администратор"
+              : user?.seniorAdmin
+                ? "Старший администратор"
+                : "Администрация"
           }}</small></span
         ></NuxtLink
       >
     </div>
+    <label class="user-view"
+      ><input v-model="viewAsUser" type="checkbox" /> Показывать сайт от лица
+      пользователя</label
+    >
     <div v-if="loadError" class="load-error" role="alert">
       <p>Не удалось загрузить админку.</p>
       <button @click="refresh()">Попробовать снова</button>
@@ -166,6 +188,11 @@ async function syncDates() {
       :allow-create="editor.create"
       @saved="saved"
     />
+    <AdminAuditLog v-if="tab === 'audit'" />
+    <AdminAccountRecovery
+      v-if="tab === 'recovery'"
+      :accounts="data?.accounts ?? []"
+    />
     <CoreboardPanel
       v-if="tab === 'coreboard'"
       :levels="data?.levels ?? []"
@@ -191,7 +218,7 @@ async function syncDates() {
         </p>
         <p>
           Импортируются рекорды привязанных игроков. Ручные решения сохраняются,
-          а исчезнувшие рекорды остаются активными с отметкой для проверки.
+          а исчезнувшие из источника рекорды остаются активными.
         </p>
         <div class="sync-actions">
           <button
@@ -261,6 +288,15 @@ async function syncDates() {
 <style scoped lang="scss">
 .admin-page {
   min-width: 0;
+}
+.user-view {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 24px;
+  input {
+    width: auto;
+  }
 }
 .page-heading {
   margin-bottom: 30px;

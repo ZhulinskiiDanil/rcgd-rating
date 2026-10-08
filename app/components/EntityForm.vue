@@ -87,6 +87,19 @@ function initialize() {
   error.value = "";
 }
 watch(() => [props.resource, props.row?.id], initialize, { immediate: true });
+function recordFlagChanged(field: Field) {
+  if (props.resource === "records" && field.key === "isVerifier") {
+    form.value.isFirstSpb = false;
+    form.value.isFirstLo = false;
+  }
+}
+function isAutomaticFirst(field: Field) {
+  return (
+    props.resource === "records" &&
+    ["isFirstSpb", "isFirstLo"].includes(field.key) &&
+    !form.value.isVerifier
+  );
+}
 watch(isBusy, (value) => emit("busy", value), {
   immediate: true,
   flush: "sync",
@@ -106,14 +119,11 @@ const recordVideo = computed(() => {
     manualPercent:
       form.value.manualPercent === "" ? null : Number(form.value.manualPercent),
     importedPercent:
-      !form.value.discardImported &&
       typeof props.row?.importedPercent === "number"
         ? props.row.importedPercent
         : null,
     manualVideo: String(form.value.manualVideo || "").trim(),
-    importedVideo: form.value.discardImported
-      ? ""
-      : String(props.row?.importedVideo || "").trim(),
+    importedVideo: String(props.row?.importedVideo || "").trim(),
   });
 });
 function cancelDateLookup() {
@@ -292,7 +302,8 @@ onMounted(() => {
               :id="`${formId}-${f.key}`"
               v-model="form[f.key]"
               type="checkbox"
-              :disabled="busy"
+              :disabled="busy || isAutomaticFirst(f)"
+              @change="recordFlagChanged(f)"
             /><span>{{ f.label }}</span></label
           ></template
         >
@@ -409,6 +420,15 @@ onMounted(() => {
       :resource="resource"
       :entity-id="Number(row.id)"
       :disabled="isBusy"
+      @saved="emit('saved')"
+    />
+    <EntityDeleteButton
+      v-if="row?.id && resource === 'records'"
+      resource="records"
+      :entity-id="Number(row.id)"
+      :disabled="isBusy"
+      permanent
+      label="Удалить навсегда"
       @saved="emit('saved')"
     />
     <div class="form-actions">

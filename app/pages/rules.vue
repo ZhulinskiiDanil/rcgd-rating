@@ -232,14 +232,6 @@ useHead({ title: "Как считается рейтинг · СПб Demonlist" 
               ><span
                 ><strong>Coreboard</strong
                 ><small>Лист-проценты и эндинги топа-150</small></span
-              ><AppIcon name="external" /></a
-            ><a
-              href="https://docs.google.com/spreadsheets/d/1vSOs24s1nX9hWiwoy8qWSWh28CUKODectnBz14Vpx5M/edit?gid=626858444"
-              target="_blank"
-              rel="noopener noreferrer"
-              ><span
-                ><strong>Таблица сообщества</strong
-                ><small>Начальный СПб-лист и достижения</small></span
               ><AppIcon name="external"
             /></a>
           </div>

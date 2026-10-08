@@ -18,7 +18,9 @@ const runners = computed(() => props.levels.slice(1, 3));
     />
     <div class="intro-copy">
       <span class="eyebrow">Санкт-Петербург · Ленинградская область</span>
-      <h1>Демонлист<br />Санкт-Петербурга</h1>
+      <h1>
+        <NuxtLink to="/demonlist">Демонлист<br />Санкт-Петербурга</NuxtLink>
+      </h1>
       <p>
         Самые сложные уровни, пройденные<br class="wide-break" />
         игроками нашего города и области.
@@ -182,6 +184,10 @@ const runners = computed(() => props.levels.slice(1, 3));
   margin-bottom: 22px;
   font-weight: 700;
   overflow-wrap: normal;
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
 }
 .intro p {
   font-size: 18px;

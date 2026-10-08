@@ -7,7 +7,11 @@ import { logChange } from "./changes";
 export function resetAccountPassword(id: number, actorId: number) {
   return db().transaction(() => {
     const actor = account(actorId);
-    if (!actor?.headAdmin || actor.disabled || actor.passwordResetRequired)
+    if (
+      (!actor?.headAdmin && !actor?.seniorAdmin) ||
+      actor.disabled ||
+      actor.passwordResetRequired
+    )
       throw createError({ statusCode: 403, message: "Недостаточно прав" });
     if (id === actorId)
       throw createError({
@@ -26,7 +30,7 @@ export function resetAccountPassword(id: number, actorId: number) {
     logChange(
       "password-recovery",
       id,
-      "Главный администратор выдал временный пароль",
+      `${actor.headAdmin ? "Главный" : "Старший"} администратор выдал временный пароль`,
       null,
       { accountId: id },
       actorId,

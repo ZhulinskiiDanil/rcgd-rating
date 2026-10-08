@@ -41,7 +41,6 @@ function edit(overrides: Record<string, unknown> = {}) {
     active: true,
     dateSource: "video",
     achievedAt: "2026-09-20",
-    discardImported: false,
     ...overrides,
   };
 }
@@ -109,33 +108,35 @@ describe("record reassignment", () => {
       isFirstRk: 1,
     });
   });
-  it("clears the old region mark when moving to another region and accepts that region's own mark", async () => {
+  it("recalculates the first region when moving a completion to another region", async () => {
     db().exec("UPDATE records SET isFirstSpb=1 WHERE id=1");
     await handler({ body: edit({ isFirstSpb: true, dateSource: "manual" }) });
     expect(original()).toMatchObject({
       playerId: 2,
       isFirstSpb: 0,
-      isFirstLo: 0,
+      isFirstLo: 1,
     });
     await handler({
       body: edit({ manualPercent: 100, isFirstLo: true, dateSource: "manual" }),
     });
     expect(original()).toMatchObject({ isFirstSpb: 0, isFirstLo: 1 });
   });
-  it("rejects a first-victor mark on a progress record", async () => {
+  it("rejects a verifier mark on a progress record", async () => {
+    db().exec(
+      "UPDATE records SET importedPercent=NULL,importedId=NULL WHERE id=1",
+    );
     await expect(
       handler({
         body: edit({
           playerId: 1,
           levelId: 1,
           manualPercent: 95,
-          discardImported: true,
-          isFirstSpb: true,
+          isVerifier: true,
           dateSource: "manual",
         }),
       }),
     ).rejects.toMatchObject({ statusCode: 400 });
-    expect(original()).toMatchObject({ isFirstSpb: 0, importedPercent: 100 });
+    expect(original()).toMatchObject({ isVerifier: 0, importedPercent: null });
   });
   it("keeps the winning video and date, and blocks reimport on the original player/level pair", async () => {
     const fetcher = vi.fn();
@@ -185,7 +186,7 @@ describe("record reassignment", () => {
     ).toBe(2);
   });
 
-  it("discards the imported result before choosing the new percentage, video and publication date", async () => {
+  it("ignores the removed discard control and preserves imported results", async () => {
     const fetcher = vi.fn(
       async () =>
         new Response('<meta itemprop="datePublished" content="2026-08-15">'),
@@ -193,27 +194,29 @@ describe("record reassignment", () => {
     vi.stubGlobal("fetch", fetcher);
     await handler({ body: edit({ discardImported: true }) });
     expect(original()).toMatchObject({
-      manualPercent: 80,
-      manualVideo,
+      manualPercent: 100,
+      manualVideo: importedVideo,
       importedPercent: null,
       importedId: null,
       importedVideo: "",
       dateSource: "video",
-      achievedAt: "2026-08-15",
-      sourceVideo: manualVideo,
+      achievedAt: "2026-09-20",
+      sourceVideo: importedVideo,
     });
-    expect(fetcher).toHaveBeenCalledWith(manualVideo, expect.anything());
+    expect(fetcher).not.toHaveBeenCalled();
     expect(
       one<RecordEntry>("SELECT * FROM records WHERE playerId=1 AND levelId=1")
         ?.deletedAt,
     ).not.toBeNull();
   });
 
-  it("does not invent a manual result when discarding an imported-only record", async () => {
+  it("rejects an active record with neither manual nor imported result", async () => {
+    db().exec(
+      "UPDATE records SET importedPercent=NULL,importedId=NULL WHERE id=1",
+    );
     await expect(
       handler({
         body: edit({
-          discardImported: true,
           manualPercent: null,
           manualVideo: "",
         }),
@@ -222,7 +225,7 @@ describe("record reassignment", () => {
     expect(original()).toMatchObject({
       playerId: 1,
       levelId: 1,
-      importedPercent: 100,
+      importedPercent: null,
     });
     expect(
       one<{ count: number }>("SELECT COUNT(*) AS count FROM records")?.count,
@@ -249,7 +252,6 @@ describe("record reassignment", () => {
         levelId: 2,
         manualPercent: 100,
         manualVideo: "",
-        discardImported: false,
       },
       { ...original(), importedPercent: 80 },
     );
@@ -278,7 +280,9 @@ describe("record reassignment", () => {
       );
       const pending = handler({
         body: edit({
-          discardImported: true,
+          playerId: 1,
+          levelId: 1,
+          manualPercent: 100,
           manualVideo: `https://www.youtube.com/watch?v=${operation === "date" ? "33333333333" : "44444444444"}`,
         }),
       });

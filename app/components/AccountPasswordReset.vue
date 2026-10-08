@@ -37,7 +37,10 @@ async function copy() {
 </script>
 <template>
   <section
-    v-if="session?.user?.headAdmin && session.user.id !== accountId"
+    v-if="
+      (session?.user?.headAdmin || session?.user?.seniorAdmin) &&
+      session.user.id !== accountId
+    "
     class="password-recovery"
   >
     <h4>Восстановление доступа</h4>

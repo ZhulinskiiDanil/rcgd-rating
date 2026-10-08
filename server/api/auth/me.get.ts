@@ -15,6 +15,7 @@ export default defineEventHandler(async (event) => {
     nickname: player?.name || user.nickname || user.login,
     playerId: player?.id ?? null,
     headAdmin: !!user.headAdmin,
+    seniorAdmin: !!user.seniorAdmin,
     permissions: user.permissions,
     avatar: user.avatarUrl || user.discordAvatar || user.googleAvatar,
     avatarLocked: !!user.avatarLocked,

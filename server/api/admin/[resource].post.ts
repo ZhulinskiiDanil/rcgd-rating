@@ -88,11 +88,10 @@ const schemas = {
     isFirstRk: z.boolean().optional(),
     isFirstSpb: z.boolean().optional(),
     isFirstLo: z.boolean().optional(),
+    isVerifier: z.boolean().optional(),
     achievedAt: date.optional(),
     dateSource: z.enum(["manual", "video"]).nullable().optional(),
     sourceVideo: z.string().max(2048).optional(),
-    reviewNeeded: z.boolean().default(false),
-    discardImported: z.boolean().default(false),
   }),
   extras: z.object({
     id: id.optional(),
@@ -256,6 +255,8 @@ export default defineEventHandler(async (event) => {
       }
       const fields: Record<string, unknown> = { ...value };
       delete fields.id;
+      if (resource === "players" && !value.id && fields.hidden === undefined)
+        fields.hidden = 1;
       if (resource === "levels") {
         const level = schemas.levels.parse(value);
         const t =
@@ -285,22 +286,30 @@ export default defineEventHandler(async (event) => {
       }
       if (resource === "records") {
         const record = schemas.records.parse(value);
-        delete fields.discardImported;
         Object.assign(fields, preparedRecord, recordDates);
         const region = one<{ region: "spb" | "lo" | null }>(
           "SELECT d.region FROM players p LEFT JOIN districts d ON d.id=p.districtId WHERE p.id=? AND p.deletedAt IS NULL",
           record.playerId,
         )?.region;
-        fields.isFirstSpb =
+        const isVerifier = record.isVerifier ?? !!previousRecord?.isVerifier;
+        const regionalChoice =
           region === "spb"
-            ? Number(record.isFirstSpb ?? previousRecord?.isFirstSpb ?? 0)
-            : 0;
-        fields.isFirstLo =
-          region === "lo"
-            ? Number(record.isFirstLo ?? previousRecord?.isFirstLo ?? 0)
-            : 0;
+            ? record.isFirstSpb
+            : region === "lo"
+              ? record.isFirstLo
+              : false;
+        const override =
+          isVerifier &&
+          (regionalChoice ??
+            (previousRecord?.isVerifier &&
+              previousRecord.firstVictorOverride) ??
+            false);
+        fields.isVerifier = Number(isVerifier);
+        fields.firstVictorOverride = Number(override);
+        fields.isFirstSpb = Number(region === "spb" && override);
+        fields.isFirstLo = Number(region === "lo" && override);
         if (
-          (fields.isFirstSpb || fields.isFirstLo) &&
+          (fields.isFirstSpb || fields.isFirstLo || fields.isVerifier) &&
           Math.max(
             preparedRecord!.manualPercent ?? 0,
             preparedRecord!.importedPercent ?? 0,
@@ -309,19 +318,9 @@ export default defineEventHandler(async (event) => {
           throw createError({
             statusCode: 400,
             message:
-              "Первым региональным виктором можно отметить только прохождение на 100%.",
+              "Верификатором или первым региональным виктором можно отметить только прохождение на 100%.",
           });
         fields.updatedAt = new Date().toISOString();
-        if (record.discardImported && record.id) {
-          logChange(
-            "record-review",
-            record.playerId,
-            "Администрация убрала сохранённый глобальный результат",
-            { percent: before?.importedPercent },
-            { playerId: record.playerId, levelId: record.levelId },
-            user.id,
-          );
-        }
       }
       if (resource === "levels" && before?.gdlId) {
         delete fields.name;
@@ -383,16 +382,21 @@ export default defineEventHandler(async (event) => {
               "Уровень с этим ID уже есть в каталоге. Добавьте существующий уровень в лист.",
           });
       }
-      if (resource !== "news")
-        logChange(
-          "admin-edit",
-          savedId,
-          `${resource}: ${value.id ? "изменена" : "добавлена"} запись`,
-          null,
-          { resource, id: savedId },
-          user.id,
-          false,
-        );
+      logChange(
+        "admin-edit",
+        savedId,
+        `${{ players: "Игрок", levels: "Уровень", records: "Рекорд", districts: "Район", extras: "Достижение района", news: "Новость", accounts: "Аккаунт" }[resource]} #${savedId}: ${value.id ? "изменена" : "добавлена"} запись`,
+        null,
+        {
+          resource,
+          id: savedId,
+          fields: Object.keys(fields).filter(
+            (key) => fields[key] !== before?.[key],
+          ),
+        },
+        user.id,
+        false,
+      );
       if (
         resource === "players" &&
         "avatarUrl" in fields &&

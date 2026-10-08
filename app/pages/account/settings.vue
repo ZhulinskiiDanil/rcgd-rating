@@ -169,6 +169,9 @@ async function logout() {
         ><button class="primary" :disabled="busy">Сохранить ник</button>
       </form>
       <p v-if="user.headAdmin" class="muted">Главный администратор</p>
+      <p v-else-if="user.seniorAdmin" class="senior-role">
+        Старший администратор
+      </p>
       <p v-else-if="user.permissions.length" class="muted">Администратор</p>
     </section>
     <section class="panel password-settings">
@@ -237,7 +240,7 @@ async function logout() {
     </section>
     <div class="settings-actions">
       <NuxtLink
-        v-if="user.headAdmin || user.permissions.length"
+        v-if="user.headAdmin || user.seniorAdmin || user.permissions.length"
         class="button"
         to="/admin"
         >Открыть админку</NuxtLink
@@ -246,6 +249,9 @@ async function logout() {
   </section>
 </template>
 <style scoped lang="scss">
+.senior-role {
+  color: var(--success);
+}
 .settings {
   max-width: 780px;
   margin-inline: auto;

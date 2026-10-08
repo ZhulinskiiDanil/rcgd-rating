@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { Victor } from "#shared/utils/victors";
 import { formatCompletionDate } from "#shared/utils/victors";
-defineProps<{ victors: Victor[] }>();
+defineProps<{ victors: Victor[]; videoUrls?: Record<number, string> }>();
 </script>
 
 <template>
@@ -16,6 +16,15 @@ defineProps<{ victors: Victor[] }>();
         formatCompletionDate(victor.achievedAt)
       }}</time>
       <span v-else>Дата не указана</span>
+      <a
+        v-if="videoUrls?.[victor.playerId]"
+        :href="videoUrls[victor.playerId]"
+        class="victor-video"
+        target="_blank"
+        rel="noopener noreferrer"
+        :aria-label="`Видео прохождения ${victor.name}`"
+        ><AppIcon name="play" :size="14" />Видео</a
+      >
     </li>
   </ul>
   <span v-else class="unknown-victor">Виктор не указан</span>
@@ -47,6 +56,19 @@ defineProps<{ victors: Victor[] }>();
   span {
     color: var(--muted);
     font-size: 13px;
+  }
+  .victor-video {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 7px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    font-size: 12px;
+    &:hover {
+      border-color: var(--accent);
+      text-decoration: none;
+    }
   }
 }
 .unknown-victor {

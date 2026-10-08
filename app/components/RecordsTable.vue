@@ -73,6 +73,11 @@ function regionalMark(record: PublicRecord) {
                 <NuxtLink :to="`/players/${r.playerId}`" class="player-name">{{
                   playerMap.get(r.playerId)?.name || "Игрок"
                 }}</NuxtLink>
+                <small
+                  v-if="r.isVerifier && percent(r) === 100"
+                  class="verifier-mark"
+                  ><AppIcon name="check" :size="13" />Верифер</small
+                >
                 <NuxtLink
                   v-if="linkedLevels.has(r.levelId)"
                   :to="`/levels/${r.levelId}`"
@@ -85,9 +90,11 @@ function regionalMark(record: PublicRecord) {
                 <small v-if="r.isFirstRk" class="rk-victor"
                   >Первый РК виктор</small
                 >
-                <small v-if="regionalMark(r)" class="rk-victor">{{
-                  regionalMark(r)
-                }}</small>
+                <small
+                  v-if="!r.isVerifier && regionalMark(r)"
+                  class="rk-victor"
+                  >{{ regionalMark(r) }}</small
+                >
               </div>
             </div>
           </td>
@@ -148,6 +155,13 @@ function regionalMark(record: PublicRecord) {
   </div>
 </template>
 <style scoped lang="scss">
+.verifier-mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--success);
+  font-size: 12px;
+}
 .rk-victor {
   color: var(--muted);
   font-size: 12px;

@@ -1,6 +1,21 @@
 <script setup lang="ts">
 import { hasLevelPage } from "#shared/utils/rating";
+import type { Permission } from "#shared/types/domain";
 const { data: catalog } = await useCatalog();
+const { showAdminControls } = useAdminView();
+const { data: account } = useNuxtData<{
+  user: { headAdmin: boolean; permissions: Permission[] } | null;
+}>("account");
+const canEdit = computed(
+  () =>
+    showAdminControls.value &&
+    (account.value?.user?.headAdmin ||
+      account.value?.user?.permissions.includes("history:write")),
+);
+const selected = ref<number[]>([]),
+  deleting = ref(false),
+  busy = ref(false),
+  deleteError = ref("");
 const page = ref(1),
   kind = ref("level"),
   search = ref("");
@@ -10,6 +25,34 @@ watch([kind, search], () => {
 const { data, error, status, refresh } = await useFetch("/api/changes", {
   query: { page, kind, search },
 });
+watch([page, kind, search], () => {
+  selected.value = [];
+  deleting.value = false;
+});
+async function refreshed() {
+  selected.value = [];
+  deleting.value = false;
+  await refresh();
+}
+async function removeSelected() {
+  busy.value = true;
+  deleteError.value = "";
+  try {
+    await $fetch("/api/admin/history/batch", {
+      method: "DELETE",
+      body: {
+        events: (data.value ?? [])
+          .filter((event) => selected.value.includes(event.id))
+          .map(({ id, updatedAt }) => ({ id, updatedAt })),
+      },
+    });
+    await refreshed();
+  } catch (cause: any) {
+    deleteError.value = cause.data?.message || "Не удалось удалить события";
+  } finally {
+    busy.value = false;
+  }
+}
 const labels: Record<string, string> = {
   level: "Уровни",
   "player-rating": "Рейтинг игроков",
@@ -88,6 +131,44 @@ useHead({ title: "История изменений · СПб Demonlist" });
           placeholder="Уровень, игрок или район"
       /></label>
     </div>
+    <template v-if="canEdit">
+      <HistoryEventCreator @saved="refreshed()" />
+      <div v-if="data?.length" class="batch-toolbar">
+        <label
+          ><input
+            type="checkbox"
+            :checked="selected.length === data.length"
+            :disabled="busy"
+            @change="
+              selected = ($event.target as HTMLInputElement).checked
+                ? data.map((event) => event.id)
+                : []
+            "
+          />
+          Выбрать события на странице</label
+        >
+        <button
+          type="button"
+          :disabled="!selected.length || busy"
+          @click="deleting = true"
+        >
+          Удалить выбранные ({{ selected.length }})
+        </button>
+      </div>
+      <div v-if="deleting" class="batch-confirm panel" role="alert">
+        <p>
+          Удалить выбранные события ({{ selected.length }})? Связанные записи
+          истории уровней, игроков и районов будут удалены безвозвратно.
+        </p>
+        <button type="button" :disabled="busy" @click="removeSelected">
+          {{ busy ? "Удаляем…" : "Удалить события" }}
+        </button>
+        <button type="button" :disabled="busy" @click="deleting = false">
+          Оставить
+        </button>
+      </div>
+      <p v-if="deleteError" class="error" role="alert">{{ deleteError }}</p>
+    </template>
     <div v-if="error" class="error">
       Не удалось загрузить историю.
       <button @click="refresh()">Повторить</button>
@@ -105,6 +186,16 @@ useHead({ title: "История изменений · СПб Demonlist" });
             <span class="event-icon"><AppIcon :name="icon(c.kind)" /></span>
             <div class="event-content">
               <div class="event-meta">
+                <label v-if="canEdit" class="select-event"
+                  ><input
+                    v-model="selected"
+                    type="checkbox"
+                    :value="c.id"
+                    :disabled="busy"
+                    :aria-label="`Выбрать событие: ${c.title}`"
+                  />
+                  Выбрать</label
+                >
                 <span>{{ labels[c.kind] || c.kind }}</span
                 ><time :datetime="c.createdAt">{{ time(c.createdAt) }}</time>
               </div>
@@ -118,7 +209,7 @@ useHead({ title: "История изменений · СПб Demonlist" });
               <HistoryEventEditor
                 type="changes"
                 :event="c"
-                @saved="refresh()"
+                @saved="refreshed()"
               />
             </div>
           </li>
@@ -148,6 +239,32 @@ useHead({ title: "История изменений · СПб Demonlist" });
   </section>
 </template>
 <style scoped lang="scss">
+.batch-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+.batch-toolbar label,
+.select-event {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+}
+.batch-toolbar input,
+.select-event input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+}
+.batch-confirm {
+  padding: 20px;
+  margin-bottom: 24px;
+  button {
+    margin-right: 10px;
+  }
+}
 .page-heading h1 {
   margin-bottom: 12px;
 }

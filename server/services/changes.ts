@@ -3,7 +3,11 @@ import { reconcileList, effectivePercent } from "../../shared/utils/rating";
 import type { DataSet } from "../../shared/types/domain";
 import { rankings } from "./rankings";
 import { describeListChanges } from "./list-events";
-import { districtGenitive } from "./district-history";
+import { districtGenitive, districtSubject } from "./district-history";
+import {
+  clearBelowMikaVideos,
+  refreshRegionalVictorFlags,
+} from "../database/record-controls";
 
 const publicKinds = new Set(["level", "player-rating", "district-rating"]);
 
@@ -92,10 +96,13 @@ export function mutate<T>(
     const before = dataset(),
       previous = rankings(before);
     const result = operation();
+    clearBelowMikaVideos(db());
+    refreshRegionalVictorFlags(db());
     reconcileLevels();
     const after = dataset(),
       current = rankings(after);
     const listChange = describeListChanges(before.levels, after.levels);
+    let levelChangeId: number | null = null;
     if (listChange) {
       const changeId = logChange(
         "level",
@@ -105,6 +112,7 @@ export function mutate<T>(
         { movements: listChange.movements },
         actorId,
       );
+      levelChangeId = changeId;
       const insert = db().prepare(
         "INSERT INTO levelHistory(levelId,fromRank,toRank,fromTier,toTier,changeId,note) VALUES (?,?,?,?,?,?,?)",
       );
@@ -121,56 +129,135 @@ export function mutate<T>(
     }
     for (const type of ["players", "districts"] as const) {
       const oldRows = new Map(previous[type].map((p) => [p.id, p]));
-      for (const row of current[type]) {
+      const rows = current[type];
+      const rankOf = (row: (typeof rows)[number] | undefined) =>
+        row?.rank != null && row.top.some((result) => result.kind !== "empty")
+          ? row.rank
+          : null;
+      const movements = [
+        ...rows,
+        ...previous[type]
+          .filter((row) => !rows.some((next) => next.id === row.id))
+          .map((row) => ({ ...row, rank: null })),
+      ].flatMap((row) => {
         const old = oldRows.get(row.id);
-        if (
-          achievements(before, type, row.id) ===
-          achievements(after, type, row.id)
-        )
-          continue;
-        const wasRanked =
-          old?.rank != null &&
-          old.top.some((result) => result.kind !== "empty");
-        const isRanked =
-          row.rank !== null &&
-          row.top.some((result) => result.kind !== "empty");
-        if (!wasRanked && !isRanked) continue;
-        if (wasRanked === isRanked && (old?.rank ?? null) === row.rank)
-          continue;
-        const rank = isRanked ? row.rank : null;
-        db()
-          .prepare(
-            "INSERT INTO ratingHistory(entityType,entityId,rank,score,results,reason) VALUES (?,?,?,?,?,?)",
-          )
-          .run(type, row.id, rank, row.score, JSON.stringify(row.top), reason);
-        const rows = current[type];
+        const fromRank = rankOf(old),
+          toRank = rankOf(row);
+        if (fromRank === toRank) return [];
+        const primary =
+          achievements(before, type, row.id) !==
+            achievements(after, type, row.id) ||
+          old?.name !== row.name ||
+          (type === "players" &&
+            before.players.find((player) => player.id === row.id)?.hidden !==
+              after.players.find((player) => player.id === row.id)?.hidden);
+        return [{ row, old, fromRank, toRank, primary }];
+      });
+      if (!movements.length) continue;
+      if (!levelChangeId && !movements.some((movement) => movement.primary))
+        movements[0]!.primary = true;
+      const parents = new Map<number, number>();
+      for (const movement of movements.filter((item) => item.primary)) {
+        const { row, old, fromRank, toRank } = movement;
+        const subject =
+          type === "districts" ? districtSubject(row.name) : row.name;
         let title: string;
-        if (!isRanked)
-          title = `${row.name} больше не имеет ${type === "players" ? "результатов" : "прохождений"} в топе-150`;
+        if (toRank === null)
+          title = row.top.some((result) => result.kind !== "empty")
+            ? `${subject} вышел из рейтинга`
+            : `${subject} больше не имеет ${type === "players" ? "результатов" : "прохождений"} в топе-150`;
         else {
           const position = rows.findIndex((item) => item.id === row.id);
           const higher =
-            position > 0 && rows[position - 1]!.rank !== null
+            position > 0 && rankOf(rows[position - 1]) !== null
               ? rows[position - 1]!.name
               : null;
           const lower =
-            rows[position + 1]?.rank !== null ? rows[position + 1]?.name : null;
+            rankOf(rows[position + 1]) !== null
+              ? rows[position + 1]?.name
+              : null;
           const neighborName = (name: string) =>
             type === "districts" ? districtGenitive(name) : name;
           const movement =
-            wasRanked && old?.rank
-              ? `${row.rank! < old.rank ? "поднялся" : "опустился"} с ${old.rank} на ${row.rank} место`
-              : `вошёл в рейтинг на ${row.rank} место`;
-          title = `${row.name} ${movement} с ${row.score.toFixed(2)} очками${lower ? ` выше ${neighborName(lower)}` : ""}${higher ? `${lower ? " и" : ""} ниже ${neighborName(higher)}` : ""}`;
+            fromRank !== null
+              ? `${toRank < fromRank ? "поднялся" : "опустился"} с ${fromRank} на ${toRank} место`
+              : `вошёл в рейтинг на ${toRank} место`;
+          title = `${subject} ${movement} с ${row.score.toFixed(2)} очками${lower ? ` выше ${neighborName(lower)}` : ""}${higher ? `${lower ? " и" : ""} ниже ${neighborName(higher)}` : ""}`;
         }
-        logChange(
-          type === "players" ? "player-rating" : "district-rating",
+        parents.set(
           row.id,
-          title,
-          wasRanked && old ? { rank: old.rank, score: old.score } : null,
-          { rank, score: row.score },
-          actorId,
+          logChange(
+            type === "players" ? "player-rating" : "district-rating",
+            row.id,
+            title,
+            fromRank !== null && old
+              ? { rank: fromRank, score: old.score }
+              : null,
+            { rank: toRank, score: row.score },
+            actorId,
+          ),
         );
+      }
+      for (const movement of movements) {
+        const { row, fromRank, toRank } = movement;
+        const causes = movements.filter(
+          (cause) =>
+            cause !== movement &&
+            cause.primary &&
+            (cause.fromRank !== null &&
+              cause.fromRank < (fromRank ?? Infinity)) !==
+              (cause.toRank !== null && cause.toRank < (toRank ?? Infinity)),
+        );
+        const notes = causes.map((cause) => {
+          const name =
+            type === "districts"
+              ? districtSubject(cause.row.name)
+              : cause.row.name;
+          if (cause.toRank === null)
+            return `${name} вышел из рейтинга с позиции выше`;
+          if (cause.fromRank === null)
+            return `${name} вошёл в рейтинг выше этого ${type === "players" ? "игрока" : "района"}`;
+          const up = cause.toRank < cause.fromRank;
+          return `${name} ${up ? "поднялся выше" : "опустился ниже"} этого ${type === "players" ? "игрока" : "района"}`;
+        });
+        const parentIds = new Set(
+          causes.map((cause) => parents.get(cause.row.id)!),
+        );
+        const ownParent = parents.get(row.id);
+        if (ownParent) parentIds.add(ownParent);
+        if (levelChangeId) parentIds.add(levelChangeId);
+        const note =
+          notes.join(", ") ||
+          (levelChangeId && !ownParent
+            ? "Изменился порядок уровней в листе"
+            : fromRank === null
+              ? "Вошёл в рейтинг"
+              : toRank === null
+                ? "Вышел из рейтинга"
+                : toRank < fromRank
+                  ? "Поднялся в рейтинге"
+                  : "Опустился в рейтинге");
+        const historyId = Number(
+          db()
+            .prepare(
+              "INSERT INTO ratingHistory(entityType,entityId,fromRank,rank,score,results,reason,changeId,note) VALUES (?,?,?,?,?,?,?,?,?)",
+            )
+            .run(
+              type,
+              row.id,
+              fromRank,
+              toRank,
+              row.score,
+              JSON.stringify(row.top),
+              reason,
+              ownParent ?? [...parentIds][0] ?? null,
+              note,
+            ).lastInsertRowid,
+        );
+        const insertCause = db().prepare(
+          "INSERT INTO ratingHistoryCauses(historyId,changeId) VALUES(?,?)",
+        );
+        for (const parentId of parentIds) insertCause.run(historyId, parentId);
       }
     }
     return result;

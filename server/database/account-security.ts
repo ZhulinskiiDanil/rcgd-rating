@@ -13,6 +13,8 @@ export function migrateAccountSecurity(connection: Database.Database) {
       sessionKey: "TEXT NOT NULL DEFAULT ''",
       avatarLocked: "INTEGER NOT NULL DEFAULT 0",
       passwordResetRequired: "INTEGER NOT NULL DEFAULT 0",
+      seniorAdmin: "INTEGER NOT NULL DEFAULT 0",
+      adminContact: "TEXT NOT NULL DEFAULT ''",
     })) {
       if (!columns.has(name))
         connection.exec(

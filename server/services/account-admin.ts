@@ -15,6 +15,8 @@ export const accountAdminPatchSchema = z.object({
   permissions: z.array(z.enum(PERMISSIONS)).optional(),
   disabled: z.boolean().optional(),
   headAdmin: z.boolean().optional(),
+  seniorAdmin: z.boolean().optional(),
+  adminContact: z.string().trim().max(300).optional(),
   unlinkDiscord: z.boolean().optional(),
   transferHeadAdminTo: z.number().int().positive().nullable().optional(),
 });
@@ -27,7 +29,7 @@ export function applyAccountAdminPatch(
   const value = accountAdminPatchSchema.parse(patch);
   return db().transaction(() => {
     const actor = account(actorId);
-    if (!actor?.headAdmin || actor.disabled)
+    if (!actor?.headAdmin || actor.disabled || actor.passwordResetRequired)
       throw createError({ statusCode: 403, message: "Недостаточно прав" });
     const before = account(id);
     if (!before)

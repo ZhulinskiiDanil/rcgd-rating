@@ -2,7 +2,7 @@ import { z } from "zod";
 import { resetAccountPassword } from "../../services/account-recovery";
 
 export default defineEventHandler(async (event) => {
-  const actor = await requirePermission(event, "head-admin");
+  const actor = await requireSeniorAdmin(event);
   throttle(event, "admin-password-recovery", 20, 15);
   const { id } = await readValidatedBody(
     event,

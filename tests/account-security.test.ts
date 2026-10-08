@@ -32,7 +32,7 @@ const { hashSecret } = await import("../server/services/password");
 const { applyAccountAdminPatch } =
   await import("../server/services/account-admin");
 const { saveOwnAvatar } = await import("../server/services/account-avatar");
-const { currentAccount, requireAccount } =
+const { currentAccount, requireAccount, requireSeniorAdmin } =
   await import("../server/utils/access");
 const { resetAccountPassword } =
   await import("../server/services/account-recovery");
@@ -618,5 +618,168 @@ describe("Восстановление пароля главным админи�
       true,
     );
     expect((await requireAccount({} as any)).id).toBe(8);
+  });
+});
+
+describe("Старший администратор", () => {
+  it("главный назначает и снимает роль, контакт сохраняется без изменения пароля и профиля", () => {
+    const before = row(8);
+    applyAccountAdminPatch(
+      8,
+      { seniorAdmin: true, adminContact: "@member" },
+      7,
+    );
+    expect(row(8)).toMatchObject({
+      seniorAdmin: 1,
+      headAdmin: 0,
+      adminContact: "@member",
+      sessionKey: before.sessionKey,
+      passwordHash: before.passwordHash,
+    });
+    expect(accountDestination(8)).toBe("/players/42");
+    migrateAccountSecurity(connection);
+    expect(row(8).seniorAdmin).toBe(1);
+    applyAccountAdminPatch(8, { seniorAdmin: false, adminContact: "" }, 7);
+    expect(row(8)).toMatchObject({ seniorAdmin: 0, adminContact: "" });
+  });
+
+  it("старший выдаёт временный пароль главному, сохраняя его роль и данные", () => {
+    applyAccountAdminPatch(8, { seniorAdmin: true }, 7);
+    const owner = row(7),
+      senior = row(8);
+    const issued = resetAccountPassword(7, 8);
+    expect(issued.login).toBe(owner.login);
+    expect(issued.password.length).toBeGreaterThanOrEqual(20);
+    expect(row(7)).toMatchObject({
+      id: 7,
+      headAdmin: 1,
+      permissions: owner.permissions,
+      passwordResetRequired: 1,
+    });
+    expect(row(7).sessionKey).not.toBe(owner.sessionKey);
+    expect(row(8)).toEqual(senior);
+    expect(authenticatePassword(issued.login, issued.password).id).toBe(7);
+    expect(accountDestination(7)).toBe("/account/settings");
+    expect(
+      sessionMatchesAccount(
+        { user: { id: 7 }, secure: { accountKey: owner.sessionKey } },
+        row(7),
+      ),
+    ).toBe(false);
+    expect(connection.prepare("SELECT * FROM identities").all()).toHaveLength(
+      3,
+    );
+  });
+
+  it("старший не назначает роли, не редактирует аккаунты и не сбрасывает собственный пароль", () => {
+    applyAccountAdminPatch(8, { seniorAdmin: true }, 7);
+    const senior = row(8),
+      owner = row(7);
+    for (const patch of [
+      { headAdmin: true },
+      { seniorAdmin: false },
+      { permissions: ["history:write" as const] },
+      { login: "Changed" },
+    ])
+      expect(() => applyAccountAdminPatch(8, patch, 8)).toThrow(
+        "Недостаточно прав",
+      );
+    expect(() => resetAccountPassword(8, 8)).toThrow("Свой пароль");
+    expect(row(8)).toEqual(senior);
+    expect(row(7)).toEqual(owner);
+  });
+
+  it.each(["disabled", "passwordResetRequired"])(
+    "старший с флагом %s не выдаёт временный пароль",
+    (flag) => {
+      applyAccountAdminPatch(8, { seniorAdmin: true }, 7);
+      connection.prepare(`UPDATE accounts SET ${flag}=1 WHERE id=8`).run();
+      const owner = row(7);
+      expect(() => resetAccountPassword(7, 8)).toThrow("Недостаточно прав");
+      expect(row(7)).toEqual(owner);
+    },
+  );
+
+  it("обычный администратор даже со всеми правами не получает восстановление главного", () => {
+    connection
+      .prepare("UPDATE accounts SET permissions=? WHERE id=8")
+      .run(
+        JSON.stringify([
+          "levels:write",
+          "players:write",
+          "districts:write",
+          "records:write",
+          "news:write",
+          "history:write",
+          "sync:run",
+        ]),
+      );
+    const owner = row(7);
+    expect(() => resetAccountPassword(7, 8)).toThrow("Недостаточно прав");
+    expect(() => applyAccountAdminPatch(8, { seniorAdmin: true }, 8)).toThrow(
+      "Недостаточно прав",
+    );
+    expect(row(7)).toEqual(owner);
+  });
+
+  it("главный с временным паролем не меняет роли через сервис", () => {
+    connection
+      .prepare("UPDATE accounts SET passwordResetRequired=1 WHERE id=7")
+      .run();
+    const target = row(8);
+    expect(() => applyAccountAdminPatch(8, { seniorAdmin: true }, 7)).toThrow(
+      "Недостаточно прав",
+    );
+    expect(row(8)).toEqual(target);
+  });
+
+  it("защита логов принимает только текущую роль главного или старшего и отвергает заблокированные и временные сессии", async () => {
+    vi.stubGlobal("createError", createError);
+    let id = 7;
+    vi.stubGlobal("getUserSession", async () => ({
+      user: { id },
+      secure: { accountKey: row(id).sessionKey },
+    }));
+    expect((await requireSeniorAdmin({} as any)).id).toBe(7);
+    id = 8;
+    await expect(requireSeniorAdmin({} as any)).rejects.toThrow(
+      "главного и старшего",
+    );
+    applyAccountAdminPatch(8, { seniorAdmin: true }, 7);
+    expect((await requireSeniorAdmin({} as any)).id).toBe(8);
+    applyAccountAdminPatch(8, { seniorAdmin: false }, 7);
+    await expect(requireSeniorAdmin({} as any)).rejects.toThrow(
+      "главного и старшего",
+    );
+    applyAccountAdminPatch(8, { seniorAdmin: true }, 7);
+    connection
+      .prepare("UPDATE accounts SET passwordResetRequired=1 WHERE id=8")
+      .run();
+    await expect(requireSeniorAdmin({} as any)).rejects.toThrow(
+      "временный пароль",
+    );
+    connection
+      .prepare(
+        "UPDATE accounts SET passwordResetRequired=0,disabled=1 WHERE id=8",
+      )
+      .run();
+    await expect(requireSeniorAdmin({} as any)).rejects.toThrow("Войдите");
+    vi.stubGlobal("getUserSession", async () => ({}));
+    await expect(requireSeniorAdmin({} as any)).rejects.toThrow("Войдите");
+  });
+
+  it("API восстановления проверяет старшую роль до чтения тела и ограничителя запросов", async () => {
+    vi.stubGlobal("defineEventHandler", (handler: unknown) => handler);
+    const denied = vi.fn().mockRejectedValue(new Error("Нет старшей роли")),
+      read = vi.fn(),
+      throttle = vi.fn();
+    vi.stubGlobal("requireSeniorAdmin", denied);
+    vi.stubGlobal("readValidatedBody", read);
+    vi.stubGlobal("throttle", throttle);
+    const handler = (await import("../server/api/admin/account-password.post"))
+      .default;
+    await expect(handler({} as any)).rejects.toThrow("Нет старшей роли");
+    expect(read).not.toHaveBeenCalled();
+    expect(throttle).not.toHaveBeenCalled();
   });
 });

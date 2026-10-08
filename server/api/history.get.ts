@@ -37,17 +37,21 @@ export default defineEventHandler((event) => {
     id: number;
     score: number;
     rank: number | null;
+    fromRank: number | null;
+    toRank: number | null;
+    note: string;
     createdAt: string;
+    updatedAt: string | null;
   }>(
-    `SELECT id,score,rank,createdAt FROM (
-      SELECT id,score,rank,createdAt,LAG(rank) OVER (ORDER BY id) AS previousRank,ROW_NUMBER() OVER (ORDER BY id) AS entry
-      FROM ratingHistory WHERE entityType=? AND entityId=? AND (
+    `SELECT id,score,rank,rank AS toRank,CASE WHEN changeId IS NOT NULL OR note<>'' THEN fromRank ELSE previousRank END AS fromRank,note,createdAt,updatedAt FROM (
+      SELECT id,score,rank,fromRank,changeId,note,createdAt,updatedAt,LAG(rank) OVER (ORDER BY id) AS previousRank,ROW_NUMBER() OVER (ORDER BY id) AS entry
+      FROM ratingHistory WHERE entityType=? AND entityId=? AND deletedAt IS NULL AND (
         rank IS NULL OR EXISTS (
           SELECT 1 FROM json_each(CASE WHEN json_valid(results) THEN results ELSE '[]' END)
           WHERE json_extract(value,'$.kind') IN ('completion','progress')
         )
       )
-    ) WHERE entry=1 OR rank IS NOT previousRank ORDER BY id DESC LIMIT 100`,
+    ) WHERE entry=1 OR rank IS NOT previousRank OR changeId IS NOT NULL ORDER BY createdAt DESC,id DESC LIMIT 100`,
     String(type),
     Number(id),
   );

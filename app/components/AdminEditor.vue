@@ -213,6 +213,14 @@ function cellValue(row: Record<string, unknown>, key: string) {
                   :entity-id="Number(row.id)"
                   :disabled="isBusy"
                   @saved="saved"
+                /><EntityDeleteButton
+                  v-if="resource === 'records'"
+                  resource="records"
+                  :entity-id="Number(row.id)"
+                  :disabled="isBusy"
+                  permanent
+                  label="Удалить навсегда"
+                  @saved="saved"
                 /><button
                   v-if="restorable && isDeleted(row)"
                   :disabled="isBusy"

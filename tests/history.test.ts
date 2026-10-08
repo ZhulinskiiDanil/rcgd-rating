@@ -99,7 +99,7 @@ describe("Причины перестановок уровней", () => {
         ?.note,
     ).toBe("New level поставлен выше этого уровня");
     expect(publicEvents("level")[0]?.title).toBe(
-      "New level поставлен в топ на 13 место выше Level 13 и ниже Level 12. Level 75 вылетает в Extended list. Level 150 вылетел в Legacy list.",
+      "New level поставлен в топ на 13 место выше Level 13 и ниже Level 12, Level 75 вылетает в Extended list, Level 150 вылетает в Legacy list",
     );
     expect(publicEvents("level")[0]?.title).not.toMatch(/[«»"]/);
   });
@@ -112,7 +112,7 @@ describe("Причины перестановок уровней", () => {
         .run(),
     );
     expect(publicEvents("level")[0]?.title).toBe(
-      "Silent Club поставлен в топ на 93 место выше Level 93 и ниже Level 92. Level 150 вылетел в Legacy list.",
+      "Silent Club поставлен в топ на 93 место выше Level 93 и ниже Level 92, Level 150 вылетает в Legacy list",
     );
     expect(
       one<any>(
@@ -196,7 +196,7 @@ describe("Причины перестановок уровней", () => {
         .run(),
     );
     const title = publicEvents("level")[0]?.title;
-    expect(title).toMatch(/^Level 13 удалён из листа\. /);
+    expect(title).toMatch(/^Level 13 удалён из листа, /);
     expect(title).toContain("Level 76 вернулся в Main list");
     expect(title).not.toMatch(/вернулся в (?:Main|Extended) list на/);
     expect(
@@ -237,7 +237,7 @@ describe("Причины перестановок уровней", () => {
     ).toEqual({ manualPercent: 100, deletedAt: null });
     expect(publicEvents("level")).toHaveLength(1);
     expect(publicEvents("level")[0]?.title).toContain(
-      "Level 127 вылетел в Legacy list с 127 места",
+      "Level 127 вылетает в Legacy list с 127 места",
     );
     expect(publicEvents("level")[0]?.title).not.toContain(". Подвинут");
     expect(
@@ -357,7 +357,7 @@ describe("История рейтинга связана с достижения
     ])
       expect(event.title).not.toMatch(/[«»"]/);
   });
-  it("перестановка глобала не создаёт историю игроков и районов с прежними рекордами", () => {
+  it("перестановка глобала сохраняет перемещения в профилях и связывает их с событием уровня", () => {
     mutate("Seed players", null, () =>
       db().exec(
         "INSERT INTO players(id,name,districtId) VALUES(1,'First',1),(2,'Second',2); INSERT INTO records(playerId,levelId,manualPercent) VALUES(1,1,100),(2,2,100);",
@@ -369,6 +369,9 @@ describe("История рейтинга связана с достижения
     );
     expect(publicEvents("player-rating")).toHaveLength(0);
     expect(publicEvents("district-rating")).toHaveLength(0);
-    expect(all("SELECT * FROM ratingHistory")).toHaveLength(0);
+    expect(all("SELECT * FROM ratingHistory")).toHaveLength(4);
+    expect(all("SELECT DISTINCT changeId FROM ratingHistory")).toEqual(
+      all("SELECT id AS changeId FROM changes WHERE kind='level' AND public=1"),
+    );
   });
 });

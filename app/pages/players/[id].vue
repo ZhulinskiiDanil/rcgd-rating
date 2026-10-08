@@ -292,15 +292,13 @@ useHead({ title: () => `${player.value?.name} · СПб Demonlist` });
       <UserAvatar :name="player.name" :url="player.avatar" size="large" />
       <div class="identity-text">
         <h1 :class="{ inactive: player.inactive }">{{ player.name }}</h1>
-        <p
-          v-if="player.role"
-          class="role-label"
-          :class="{ 'head-admin': player.role === 'head-admin' }"
-        >
+        <p v-if="player.role" class="role-label" :class="player.role">
           {{
             player.role === "head-admin"
               ? "Главный администратор"
-              : "Администратор"
+              : player.role === "senior-admin"
+                ? "Старший администратор"
+                : "Администратор"
           }}
         </p>
         <div class="district">
@@ -366,11 +364,6 @@ useHead({ title: () => `${player.value?.name} · СПб Demonlist` });
       :levels="data.levels"
       :show-formula="false"
     />
-    <ForecastCalculator
-      entity-type="players"
-      :entity-id="id"
-      :show-formula="false"
-    />
     <div class="section-heading">
       <h2>
         Достижения <span class="count">{{ records.length }}</span>
@@ -418,6 +411,11 @@ useHead({ title: () => `${player.value?.name} · СПб Demonlist` });
       />
     </div>
     <RatingHistory :id="id" type="players" />
+    <ForecastCalculator
+      entity-type="players"
+      :entity-id="id"
+      :show-formula="false"
+    />
   </section>
 </template>
 <style scoped lang="scss">
@@ -434,6 +432,9 @@ useHead({ title: () => `${player.value?.name} · СПб Demonlist` });
   margin: 0 0 10px;
   &.head-admin {
     color: var(--warm);
+  }
+  &.senior-admin {
+    color: var(--success);
   }
 }
 .hardest-panel {

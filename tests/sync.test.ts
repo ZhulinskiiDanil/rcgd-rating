@@ -128,7 +128,7 @@ describe("Источники и сохранение данных", () => {
     });
     expect(
       one<any>("SELECT * FROM records WHERE levelId=?", future.id),
-    ).toEqual(record);
+    ).toEqual({ ...record, manualVideo: "" });
     expect(one("SELECT id FROM levels WHERE gdlId=502")).toBeUndefined();
   });
 
@@ -470,7 +470,7 @@ describe("Источники и сохранение данных", () => {
       verifiedLocal: 0,
     });
   });
-  it("сохраняет прежний рекорд для проверки, если глобал понизил процент", () => {
+  it("сохраняет прежний рекорд без флагов проверки, если глобал понизил процент", () => {
     db().prepare("INSERT INTO players(id,name) VALUES(1,?)").run("Player");
     const record = {
       id: 1,
@@ -482,8 +482,8 @@ describe("Источники и сохранение данных", () => {
     mergeRecords(1, [{ ...record, id: 2, percent: 90 }]);
     expect(one<any>("SELECT * FROM records")).toMatchObject({
       importedPercent: 100,
-      missing: 1,
-      reviewNeeded: 1,
+      missing: 0,
+      reviewNeeded: 0,
     });
     const changes = all("SELECT * FROM changes").length;
     mergeRecords(1, [{ ...record, id: 2, percent: 90 }]);
@@ -558,8 +558,8 @@ describe("Источники и сохранение данных", () => {
     expect(row).toMatchObject({
       manualPercent: 100,
       importedPercent: 90,
-      missing: 1,
-      reviewNeeded: 1,
+      missing: 0,
+      reviewNeeded: 0,
       active: 1,
     });
     mergeRecords(1, [r]);

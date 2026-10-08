@@ -1,4 +1,5 @@
 import { readImageBody, saveImage } from "../../services/media";
+import { logChange } from "../../services/changes";
 
 export default defineEventHandler(async (event) => {
   const user = await requireAccount(event);
@@ -14,7 +15,15 @@ export default defineEventHandler(async (event) => {
       message: "Недостаточно прав для загрузки изображений",
     });
   const body = await readImageBody(event.node.req);
-  return {
-    url: await saveImage(body, getRequestHeader(event, "content-type")),
-  };
+  const url = await saveImage(body, getRequestHeader(event, "content-type"));
+  logChange(
+    "media-upload",
+    null,
+    "Загружено изображение",
+    null,
+    { url },
+    user.id,
+    false,
+  );
+  return { url };
 });

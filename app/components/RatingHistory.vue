@@ -1,147 +1,75 @@
 <script setup lang="ts">
-import { formatScore } from "#shared/utils/presentation";
 const props = defineProps<{ type: "players" | "districts"; id: number }>();
-const { data, error } = await useFetch<
-  { id: number; score: number; rank: number | null; createdAt: string }[]
+const { data, error, refresh } = await useFetch<
+  {
+    id: number;
+    fromRank: number | null;
+    toRank: number | null;
+    note: string;
+    createdAt: string;
+    updatedAt: string | null;
+  }[]
 >("/api/history", {
   query: { type: props.type, id: props.id },
   key: `history-${props.type}-${props.id}`,
 });
+function movement(from: number | null, to: number | null) {
+  if (from === null || to === null) return "—";
+  const delta = from - to;
+  return delta > 0 ? `↑ ${delta}` : delta < 0 ? `↓ ${-delta}` : "—";
+}
 </script>
 <template>
   <section class="rating-history">
-    <details class="panel">
-      <summary>
-        <span><AppIcon name="history" /> История рейтинга</span
-        ><span class="history-count"
-          >{{ data?.length ?? 0 }} <AppIcon name="chevron"
-        /></span>
-      </summary>
-      <p v-if="error" class="error history-message">
-        Не удалось загрузить историю рейтинга. Обновите страницу.
-      </p>
-      <div v-else-if="data?.length" class="table-wrap" tabindex="0">
-        <table aria-label="История изменений рейтинга">
-          <thead>
-            <tr>
-              <th scope="col">Дата, МСК</th>
-              <th scope="col">Место</th>
-              <th scope="col">Балл</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="r in data" :key="r.id">
-              <td class="date">
-                <time :datetime="r.createdAt">{{
-                  new Date(r.createdAt).toLocaleString("ru-RU", {
-                    timeZone: "Europe/Moscow",
-                  })
-                }}</time>
-              </td>
-              <td class="rank">{{ r.rank === null ? "—" : "#" + r.rank }}</td>
-              <td class="score">{{ formatScore(r.score) }}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-      <p v-else class="history-message">
-        Пока без изменений. Здесь появятся изменения позиции в рейтинге.
-      </p>
-    </details>
+    <h2>История {{ type === "players" ? "игрока" : "района" }}</h2>
+    <p v-if="error" class="error">
+      Не удалось загрузить историю.
+      <button @click="refresh()">Повторить</button>
+    </p>
+    <div v-else-if="data?.length" class="table-wrap">
+      <table aria-label="История перемещений в рейтинге">
+        <thead>
+          <tr>
+            <th>Дата</th>
+            <th>Позиция</th>
+            <th>Примечание</th>
+            <th>Сдвиг</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="event in data" :key="event.id">
+            <td>
+              <time :datetime="event.createdAt">{{
+                new Date(event.createdAt).toLocaleDateString("ru-RU", {
+                  timeZone: "Europe/Moscow",
+                })
+              }}</time>
+            </td>
+            <td>
+              {{ event.fromRank ? "#" + event.fromRank : "—" }} →
+              {{ event.toRank ? "#" + event.toRank : "—" }}
+            </td>
+            <td>
+              {{ event.note || "—"
+              }}<HistoryEventEditor
+                type="ratings"
+                :event="event"
+                @saved="refresh()"
+              />
+            </td>
+            <td>{{ movement(event.fromRank, event.toRank) }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p v-else class="muted">Позиция ещё не менялась.</p>
   </section>
 </template>
 <style scoped lang="scss">
 .rating-history {
   margin-top: 36px;
 }
-details {
-  overflow: hidden;
-}
-.table-wrap {
-  border: 0;
-  border-radius: 0;
-}
-summary {
-  list-style: none;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 22px 24px;
-  cursor: pointer;
-  font-size: 16px;
-  font-weight: 500;
-  &::-webkit-details-marker {
-    display: none;
-  }
-  > span {
-    display: flex;
-    gap: 11px;
-    align-items: center;
-  }
-  :deep(svg) {
-    color: var(--muted);
-  }
-}
-.history-count {
-  font-size: 14px;
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
-  :deep(svg) {
-    width: 14px;
-    transition: transform 150ms;
-  }
-}
-details[open] {
-  summary {
-    border-bottom: 1px solid var(--line);
-  }
-  .history-count :deep(svg) {
-    transform: rotate(90deg);
-  }
-}
-table {
-  min-width: 360px;
-  font-size: 15px;
-  th {
-    color: var(--muted);
-    font-size: 14px;
-    font-weight: 500;
-  }
-  th,
-  td {
-    padding: 18px 20px;
-  }
-  th:first-child,
-  td:first-child {
-    padding-left: 24px;
-  }
-  tbody tr:last-child td {
-    border-bottom: 0;
-  }
-}
-.date {
-  color: var(--muted);
+td:not(:nth-child(3)) {
   white-space: nowrap;
-}
-.rank,
-.score {
-  font-variant-numeric: tabular-nums;
-}
-.history-message {
-  padding: 22px 24px;
-  margin: 0;
-  color: var(--muted);
-  font-size: 15px;
-}
-@media (max-width: 520px) {
-  summary {
-    padding: 20px 16px;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .history-count :deep(svg) {
-    transition: none;
-  }
 }
 </style>

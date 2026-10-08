@@ -1,3 +1,7 @@
+export function districtSubject(name: string) {
+  return /(?:район|округ)$/u.test(name) ? name : `${name} район`;
+}
+
 export function districtGenitive(name: string) {
   return name
     .split(" ")
@@ -24,6 +28,16 @@ export function formatDistrictHistory(title: string, names: string[]) {
       (_match, before: string, comparison: string) =>
         `${before}${comparison}${districtGenitive(name)}`,
     );
+    if (districtSubject(name) !== name) {
+      const subject = new RegExp(
+        `(^|[\\s,])${escaped}(?=\\s+(?:поднялся|опустился|вошёл|вышел|больше|скрыт|удалён))`,
+        "gu",
+      );
+      title = title.replace(
+        subject,
+        (_match, before: string) => `${before}${districtSubject(name)}`,
+      );
+    }
   }
   return title;
 }

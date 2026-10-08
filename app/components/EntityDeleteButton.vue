@@ -5,6 +5,7 @@ const props = defineProps<{
   label?: string;
   compact?: boolean;
   disabled?: boolean;
+  permanent?: boolean;
 }>();
 const emit = defineEmits<{ saved: [] }>();
 const { canEdit, notice } = useEntityEditor();
@@ -13,22 +14,30 @@ const busy = ref(false),
   error = ref("");
 async function remove() {
   const message =
-    props.resource === "levels"
-      ? "Убрать уровень из СПб-листа без переноса в Legacy? Синхронизация не вернёт его автоматически."
-      : props.resource === "players"
-        ? "Удалить игрока из публичного рейтинга? Его данные сохранятся и будут доступны для восстановления."
-        : "Удалить это достижение? Рейтинг будет пересчитан.";
+    props.resource === "records" && props.permanent
+      ? "Безвозвратно удалить рекорд из базы? Восстановить его будет нельзя, автоматический импорт не вернёт его."
+      : props.resource === "levels"
+        ? "Убрать уровень из СПб-листа без переноса в Legacy? Синхронизация не вернёт его автоматически."
+        : props.resource === "players"
+          ? "Удалить игрока из публичного рейтинга? Его данные сохранятся и будут доступны для восстановления."
+          : "Удалить это достижение? Рейтинг будет пересчитан.";
   if (busy.value || !window.confirm(message)) return;
   busy.value = true;
   error.value = "";
   try {
     await $fetch(`/api/admin/${props.resource}/${props.entityId}`, {
       method: "DELETE",
+      query:
+        props.permanent && props.resource === "records"
+          ? { permanent: "true" }
+          : undefined,
     });
     notice.value =
       props.resource === "levels"
         ? "Уровень убран из листа."
-        : "Достижение удалено.";
+        : props.permanent
+          ? "Рекорд удалён безвозвратно."
+          : "Достижение удалено.";
     if (
       props.resource === "levels" &&
       route.path === `/levels/${props.entityId}`

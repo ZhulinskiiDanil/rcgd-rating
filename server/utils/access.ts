@@ -34,6 +34,15 @@ export async function requirePermission(
     throw createError({ statusCode: 403, message: "Недостаточно прав" });
   return user;
 }
+export async function requireSeniorAdmin(event: H3Event) {
+  const user = await requireAccount(event);
+  if (!user.headAdmin && !user.seniorAdmin)
+    throw createError({
+      statusCode: 403,
+      message: "Доступ только для главного и старшего администратора",
+    });
+  return user;
+}
 export function throttle(
   event: H3Event,
   bucket: string,

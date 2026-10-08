@@ -41,6 +41,11 @@ export async function prepareRecordDates(
     ).map((level) => [level.id, level.gdlId]),
   );
   const knownGlobalIds = new Set(globalIds.values());
+  const blocked = new Set(
+    all<{ playerId: number; gdlId: number }>(
+      "SELECT d.playerId,l.gdlId FROM deletedRecordImports d JOIN levels l ON l.id=d.levelId WHERE l.gdlId IS NOT NULL",
+    ).map((row) => `${row.playerId}:${row.gdlId}`),
+  );
   const candidates = new Map<string, DateCandidate>(
     records.map((record) => [
       `${record.playerId}:${globalIds.get(record.levelId) ?? `local-${record.levelId}`}`,
@@ -60,6 +65,7 @@ export async function prepareRecordDates(
     for (const row of best.values()) {
       if (!knownGlobalIds.has(row.level.id)) continue;
       const key = `${playerId}:${row.level.id}`;
+      if (blocked.has(key)) continue;
       const previous = candidates.get(key);
       if (
         previous?.deletedAt ||

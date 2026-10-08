@@ -25,6 +25,29 @@ export function withoutHistoryQuotes(text: string) {
   return text.replace(/[«»“”„"]/g, "");
 }
 
+export function formatHistoryText(text: string, names: string[] = []) {
+  text = withoutHistoryQuotes(text).trim();
+  const spans = names.filter(Boolean).flatMap((name) => {
+    const result: [number, number][] = [];
+    for (
+      let start = text.indexOf(name);
+      start >= 0;
+      start = text.indexOf(name, start + name.length)
+    )
+      result.push([start, start + name.length]);
+    return result;
+  });
+  return text
+    .replace(/\.(?=\s|$)/g, (_match, index: number) =>
+      spans.some(([start, end]) => start <= index && index < end)
+        ? "."
+        : index === text.length - 1
+          ? ""
+          : ",",
+    )
+    .replace(/вылетел в (Extended|Legacy) list/g, "вылетает в $1 list");
+}
+
 function primaryNote(movement: LevelMovement) {
   if (movement.toTier === null && movement.fromTier !== null)
     return "Удалён из листа";
@@ -258,8 +281,8 @@ export function describeListChanges(before: Level[], after: Level[]) {
   };
   const legacyDescription = (movement: LevelMovement) => {
     const reason =
-      movement.note && movement.note !== "Подвинут" ? `. ${movement.note}` : "";
-    return `${movement.name} вылетел в Legacy list с ${movement.fromRank} места${reason}`;
+      movement.note && movement.note !== "Подвинут" ? `, ${movement.note}` : "";
+    return `${movement.name} вылетает в Legacy list с ${movement.fromRank} места${reason}`;
   };
   const transitions = movements
     .filter(
@@ -280,7 +303,7 @@ export function describeListChanges(before: Level[], after: Level[]) {
   const descriptions = transitions.map((movement) => {
     if (movement.toTier === "legacy")
       return hasNewLevel
-        ? `${movement.name} вылетел в Legacy list`
+        ? `${movement.name} вылетает в Legacy list`
         : legacyDescription(movement);
     const returned =
       movement.fromTier === "legacy" ||
@@ -317,9 +340,7 @@ export function describeListChanges(before: Level[], after: Level[]) {
   if (!descriptions.length)
     descriptions.push("Обновлён порядок уровней в листе");
   return {
-    title: withoutHistoryQuotes(
-      descriptions.join(". ") + (hasNewLevel ? "." : ""),
-    ),
+    title: withoutHistoryQuotes(descriptions.join(", ")),
     movements,
     entityId: primary.length === 1 ? primary[0]!.levelId : null,
   };

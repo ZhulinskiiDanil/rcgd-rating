@@ -3,6 +3,10 @@ import { mutate, logChange } from "./changes";
 import { prepareRecordDates, refreshRecordDates } from "./record-dates";
 import { gameVersionBatch } from "./level-versions";
 import {
+  clearBelowMikaVideos,
+  refreshRegionalVictorFlags,
+} from "../database/record-controls";
+import {
   CORE,
   SHEET,
   fetchLevels,
@@ -152,8 +156,9 @@ export function importAchievements(
       entityId =
         matches[0]?.id ??
         Number(
-          db().prepare("INSERT INTO players(name) VALUES (?)").run(entry.name)
-            .lastInsertRowid,
+          db()
+            .prepare("INSERT INTO players(name,hidden) VALUES (?,1)")
+            .run(entry.name).lastInsertRowid,
         );
     } else {
       const region = /\(ЛО\)/i.test(entry.name) ? "lo" : "spb";
@@ -188,13 +193,15 @@ export function importAchievements(
       if (type === "players")
         db()
           .prepare(
-            `INSERT INTO records(playerId,levelId,manualPercent,note) VALUES (?,?,?,?) ON CONFLICT(playerId,levelId) DO NOTHING`,
+            `INSERT INTO records(playerId,levelId,manualPercent,note) SELECT ?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM deletedRecordImports WHERE playerId=? AND levelId=?) ON CONFLICT(playerId,levelId) DO NOTHING`,
           )
           .run(
             entityId,
             level.id,
             result.percent,
             "Источник: исходная таблица СПб; " + SHEET,
+            entityId,
+            level.id,
           );
       else if (result.percent === 100)
         db()
@@ -300,7 +307,9 @@ export function applyGlobal(
       l.name,
       l.placement,
       l.holder ?? "",
-      safeVideo(l.verification_url),
+      cutoff !== null && l.placement !== null && l.placement > cutoff
+        ? ""
+        : safeVideo(l.verification_url),
       l.ingame_id ?? null,
       l.length ?? null,
       l.game_version == null ? "" : String(l.game_version),
@@ -314,6 +323,7 @@ export function applyGlobal(
   for (const old of existing.values())
     if (!incoming.has(old.gdlId!))
       db().prepare("UPDATE levels SET globalRank=NULL WHERE id=?").run(old.id);
+  clearBelowMikaVideos(db());
   if (!thresholds) return;
   const byName = new Map(thresholds.map((t) => [normalizedName(t.name), t]));
   const counts = new Map<string, number>();
@@ -372,7 +382,6 @@ export function mergeRecords(playerId: number, incoming: GlobalRecord[]) {
     ).map((l) => [l.gdlId, l.id]),
   );
   const best = new Map<number, GlobalRecord>();
-  const eligibleLevels = new Set(levels.values());
   for (const r of incoming) {
     const prior = best.get(r.level.id);
     if (r.status === "accepted" && (!prior || prior.percent < r.percent))
@@ -382,11 +391,15 @@ export function mergeRecords(playerId: number, incoming: GlobalRecord[]) {
     "SELECT * FROM records WHERE playerId=?",
     playerId,
   );
-  const seen = new Set<number>();
+  const deletedImports = new Set(
+    all<{ levelId: number }>(
+      "SELECT levelId FROM deletedRecordImports WHERE playerId=?",
+      playerId,
+    ).map((row) => row.levelId),
+  );
   for (const record of best.values()) {
     const levelId = levels.get(record.level.id);
-    if (!levelId) continue;
-    seen.add(levelId);
+    if (!levelId || deletedImports.has(levelId)) continue;
     const previous = old.find((r) => r.levelId === levelId);
     const resolved = resolvedLevels.get(levelId);
     if (previous?.deletedAt || resolved?.status === "legacy") continue;
@@ -400,18 +413,6 @@ export function mergeRecords(playerId: number, incoming: GlobalRecord[]) {
       previous?.importedPercent &&
       previous.importedPercent > record.percent
     ) {
-      if (!previous.missing) {
-        db()
-          .prepare("UPDATE records SET missing=1,reviewNeeded=1 WHERE id=?")
-          .run(previous.id);
-        logChange(
-          "record-review",
-          playerId,
-          `${record.level.name}: глобальный результат понижен; прежний сохранён для проверки`,
-          { percent: previous.importedPercent },
-          { percent: record.percent, playerId, levelId },
-        );
-      }
       continue;
     }
     db()
@@ -438,26 +439,8 @@ export function mergeRecords(playerId: number, incoming: GlobalRecord[]) {
         { playerId, levelId, percent: record.percent },
       );
   }
-  for (const record of old)
-    if (
-      record.importedId &&
-      !record.deletedAt &&
-      eligibleLevels.has(record.levelId) &&
-      resolvedLevels.get(record.levelId)?.status !== "legacy" &&
-      !seen.has(record.levelId) &&
-      !record.missing
-    ) {
-      db()
-        .prepare("UPDATE records SET missing=1,reviewNeeded=1 WHERE id=?")
-        .run(record.id);
-      logChange(
-        "record-review",
-        playerId,
-        "Рекорд отсутствует в глобале; сохранён до решения администрации",
-        null,
-        { playerId, levelId: record.levelId },
-      );
-    }
+  clearBelowMikaVideos(db());
+  refreshRegionalVictorFlags(db());
 }
 
 export function importSheet(names: string[], incoming: GlobalLevel[] = []) {

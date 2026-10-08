@@ -1,11 +1,8 @@
 <script setup lang="ts">
 import { hasLevelPage, isCurrentLevel, listTier } from "#shared/utils/rating";
 import { formatScore } from "#shared/utils/presentation";
-import {
-  compareCompletionDates,
-  formatCompletionDate,
-  levelVictors,
-} from "#shared/utils/victors";
+import { recordVideoUrl } from "#shared/utils/record-video";
+import { compareCompletionDates, levelVictors } from "#shared/utils/victors";
 const id = Number(useRoute().params.id);
 const { data } = await useCatalog();
 const district = computed(() => data.value?.districts.find((d) => d.id === id));
@@ -59,13 +56,17 @@ const completions = computed(
         Math.max(r.manualPercent ?? 0, r.importedPercent ?? 0) === 100,
     ) ?? [],
 );
+const videosByLevel = computed(() => {
+  const videos: Record<number, Record<number, string>> = {};
+  for (const record of completions.value.toSorted((a, b) =>
+    compareCompletionDates(a.achievedAt, b.achievedAt),
+  )) {
+    const url = recordVideoUrl(record);
+    if (url) (videos[record.levelId] ??= {})[record.playerId] ||= url;
+  }
+  return videos;
+});
 const hardest = computed(() => districtLevels.value.find(hasLevelPage));
-const linkedLevels = computed(
-  () =>
-    new Set(
-      data.value?.levels.filter(hasLevelPage).map((level) => level.id) ?? [],
-    ),
-);
 useHead({ title: () => `${district.value?.name} · СПб Demonlist` });
 </script>
 <template>
@@ -123,6 +124,11 @@ useHead({ title: () => `${district.value?.name} · СПб Demonlist` });
         <DistrictCompletionCounts :district="district" />
       </div>
     </dl>
+    <DistrictMap
+      :districts="data.districts"
+      :focus-district-id="district.id"
+      static-view
+    />
     <div class="section-heading">
       <h2>Шесть сложнейших прохождений</h2>
       <span>Каждый уровень — один раз</span>
@@ -134,12 +140,6 @@ useHead({ title: () => `${district.value?.name} · СПб Demonlist` });
       :victors-by-level="victorsByLevel"
       :show-formula="false"
     />
-    <ForecastCalculator
-      entity-type="districts"
-      :entity-id="id"
-      :show-formula="false"
-    />
-    <DistrictMap :districts="data.districts" :focus-district-id="district.id" />
     <div class="section-heading">
       <h2>
         Игроки района <span class="count">{{ players.length }}</span>
@@ -227,6 +227,7 @@ useHead({ title: () => `${district.value?.name} · СПб Demonlist` });
         <VictorList
           v-if="hasLevelPage(level)"
           :victors="victorsByLevel[level.id] ?? []"
+          :video-urls="videosByLevel[level.id]"
         />
       </div>
       <div v-if="!districtLevels.length" class="empty-note">
@@ -234,77 +235,12 @@ useHead({ title: () => `${district.value?.name} · СПб Demonlist` });
         <p>Прохождения этого района ещё не добавлены.</p>
       </div>
     </div>
-    <div class="section-heading">
-      <h2>
-        Отдельно добавленные достижения
-        <span class="count">{{ extras.length }}</span>
-      </h2>
-      <EntityEditButton
-        resource="extras"
-        label="Добавить достижение района"
-        :defaults="{ districtId: district.id }"
-      />
-    </div>
-    <p class="section-description">
-      Уровни вне текущего топа-150 не улучшают рейтинговый балл. Для них
-      сохранены названия; страницы доступны для Main, Extended и Legacy list.
-    </p>
-    <div class="extras panel">
-      <div v-if="extras.length" class="table-wrap" tabindex="0">
-        <table aria-label="Отдельно добавленные достижения района">
-          <thead>
-            <tr>
-              <th scope="col">Уровень</th>
-              <th scope="col">Викторы</th>
-              <th scope="col">Дата прохождения</th>
-              <th scope="col">Примечание</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="e in extras" :key="e.id">
-              <td>
-                <div class="entity-name">
-                  <NuxtLink
-                    v-if="linkedLevels.has(e.levelId)"
-                    :to="'/levels/' + e.levelId"
-                    >{{
-                      data.levels.find((l) => l.id === e.levelId)?.name
-                    }}</NuxtLink
-                  ><span v-else>{{
-                    data.levels.find((l) => l.id === e.levelId)?.name
-                  }}</span
-                  ><EntityEditButton
-                    resource="extras"
-                    :entity-id="e.id"
-                    label="Редактировать достижение района"
-                    compact
-                  />
-                  <EntityDeleteButton resource="extras" :entity-id="e.id" />
-                </div>
-              </td>
-              <td>
-                <VictorList
-                  v-if="linkedLevels.has(e.levelId)"
-                  :victors="victorsByLevel[e.levelId] ?? []"
-                /><span v-else>—</span>
-              </td>
-              <td class="extra-date">
-                <time v-if="e.achievedAt" :datetime="e.achievedAt">{{
-                  formatCompletionDate(e.achievedAt)
-                }}</time
-                ><span v-else>Не указана</span>
-              </td>
-              <td class="extra-note">{{ e.note || "—" }}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-      <div v-else class="empty-note">
-        <AppIcon name="list" />
-        <p>Отдельных достижений пока нет.</p>
-      </div>
-    </div>
     <RatingHistory :id="id" type="districts" />
+    <ForecastCalculator
+      entity-type="districts"
+      :entity-id="id"
+      :show-formula="false"
+    />
   </section>
 </template>
 <style scoped lang="scss">
@@ -444,17 +380,8 @@ useHead({ title: () => `${district.value?.name} · СПб Demonlist` });
     14px/1.4 "Golos Text",
     sans-serif;
 }
-.records-panel,
-.members,
-.extras {
-  overflow: hidden;
-}
-.records-panel :deep(.table-wrap),
-.extras .table-wrap {
-  border: 0;
-  border-radius: 0;
-}
 .members {
+  overflow: hidden;
   ul {
     padding: 0;
     margin: 0;
@@ -533,38 +460,6 @@ useHead({ title: () => `${district.value?.name} · СПб Demonlist` });
   font-size: 15px;
   color: var(--muted);
   max-width: 78ch;
-}
-.extras table {
-  min-width: 600px;
-  font-size: 15px;
-  th {
-    font-size: 13px;
-    color: var(--muted);
-    font-weight: 500;
-  }
-  th,
-  td {
-    padding: 15px 24px;
-  }
-  tbody tr:last-child td {
-    border-bottom: 0;
-  }
-  a {
-    color: var(--text);
-    text-decoration: none;
-    &:hover {
-      color: var(--accent);
-    }
-  }
-}
-.extra-date {
-  color: var(--muted);
-  white-space: nowrap;
-  font-size: 14px;
-}
-.extra-note {
-  color: var(--muted);
-  font-size: 14px;
 }
 .district-levels {
   overflow: hidden;

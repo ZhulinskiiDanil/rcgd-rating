@@ -4,20 +4,17 @@ import { recordVideoUrl } from "../../shared/utils/record-video";
 type RecordEdit = Pick<
   RecordEntry,
   "playerId" | "levelId" | "manualPercent" | "manualVideo"
-> & {
-  discardImported: boolean;
-};
+>;
 
 export function recordEditFields(edit: RecordEdit, before: RecordEntry | null) {
   const fields = {
     manualPercent: edit.manualPercent,
     manualVideo: edit.manualVideo,
-    importedPercent: edit.discardImported
-      ? null
-      : (before?.importedPercent ?? null),
-    importedId: edit.discardImported ? null : (before?.importedId ?? null),
-    importedVideo: edit.discardImported ? "" : (before?.importedVideo ?? ""),
-    missing: edit.discardImported ? 0 : (before?.missing ?? 0),
+    importedPercent: before?.importedPercent ?? null,
+    importedId: before?.importedId ?? null,
+    importedVideo: before?.importedVideo ?? "",
+    missing: 0,
+    reviewNeeded: 0,
   };
   if (
     before &&

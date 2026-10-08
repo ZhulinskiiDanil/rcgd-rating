@@ -17,6 +17,7 @@ const permissions: Record<EntityResource, Permission | null> = {
   accounts: null,
 };
 export function useEntityEditor() {
+  const { showAdminControls } = useAdminView();
   const target = useState<EditRequest | null>("entity-editor", () => null);
   const notice = useState<string>("entity-editor-notice", () => "");
   const { data: session } = useNuxtData<{
@@ -27,6 +28,7 @@ export function useEntityEditor() {
     const permission = permissions[resource];
     return (
       !!user &&
+      showAdminControls.value &&
       (user.headAdmin ||
         (!!permission && user.permissions.includes(permission)))
     );

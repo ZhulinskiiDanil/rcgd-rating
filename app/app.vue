@@ -33,6 +33,7 @@ const navigation = [
   { to: "/districts", text: "Районы" },
   { to: "/changelog", text: "История" },
   { to: "/rules", text: "Правила" },
+  { to: "/forecast", text: "Будущий рейтинг" },
   { to: "/administration", text: "Администрация" },
   { to: "/news", text: "Новости" },
 ];
@@ -74,7 +75,9 @@ const active = (path: string) =>
             >{{ item.text }}</NuxtLink
           >
           <NuxtLink
-            v-if="user?.headAdmin || user?.permissions.length"
+            v-if="
+              user?.headAdmin || user?.seniorAdmin || user?.permissions.length
+            "
             to="/admin"
             :class="{ selected: active('/admin') }"
             >Админка</NuxtLink
@@ -611,7 +614,7 @@ footer {
     padding-inline: 28px;
   }
 }
-@media (max-width: 1040px) {
+@media (max-width: 1300px) {
   .site-header {
     position: sticky;
     top: 0;

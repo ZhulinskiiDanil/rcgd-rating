@@ -16,7 +16,15 @@ type CompletionRecord = Pick<
   | "achievedAt"
 > &
   Partial<
-    Pick<RecordEntry, "deletedAt" | "isFirstRk" | "isFirstSpb" | "isFirstLo">
+    Pick<
+      RecordEntry,
+      | "deletedAt"
+      | "isFirstRk"
+      | "isFirstSpb"
+      | "isFirstLo"
+      | "isVerifier"
+      | "firstVictorOverride"
+    >
   >;
 export interface VictorData {
   players: (Pick<Player, "id" | "name" | "districtId"> &
@@ -35,6 +43,8 @@ export interface Victor {
   isFirstRk: boolean;
   isFirstSpb: boolean;
   isFirstLo: boolean;
+  isVerifier: boolean;
+  firstVictorOverride: boolean;
 }
 export interface RegionalFirstVictor {
   region: District["region"];
@@ -112,6 +122,8 @@ export function levelVictors(
       previous.isFirstRk ||= !!record.isFirstRk;
       previous.isFirstSpb ||= !!record.isFirstSpb;
       previous.isFirstLo ||= !!record.isFirstLo;
+      previous.isVerifier ||= !!record.isVerifier;
+      previous.firstVictorOverride ||= !!record.firstVictorOverride;
       continue;
     }
     victors.set(player.id, {
@@ -121,6 +133,9 @@ export function levelVictors(
       isFirstRk: !!record.isFirstRk || !!previous?.isFirstRk,
       isFirstSpb: !!record.isFirstSpb || !!previous?.isFirstSpb,
       isFirstLo: !!record.isFirstLo || !!previous?.isFirstLo,
+      isVerifier: !!record.isVerifier || !!previous?.isVerifier,
+      firstVictorOverride:
+        !!record.firstVictorOverride || !!previous?.firstVictorOverride,
       districtId: player.districtId,
       region:
         player.districtId === null
@@ -146,7 +161,11 @@ export function regionalFirstVictors(
   );
   return (["spb", "lo"] as const)
     .map((region): RegionalFirstVictor => {
-      const victors = allVictors.filter((victor) => victor.region === region);
+      const victors = allVictors.filter(
+        (victor) =>
+          victor.region === region &&
+          (!victor.isVerifier || victor.firstVictorOverride),
+      );
       const extraDates = (data.extras ?? [])
         .filter(
           (extra) =>

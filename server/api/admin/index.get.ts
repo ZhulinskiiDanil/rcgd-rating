@@ -2,7 +2,7 @@ import { all, dataset, one } from "../../database";
 import { PERMISSIONS } from "../../../shared/types/domain";
 export default defineEventHandler(async (event) => {
   const user = await requireAccount(event);
-  if (!user.headAdmin && !user.permissions.length)
+  if (!user.headAdmin && !user.seniorAdmin && !user.permissions.length)
     throw createError({ statusCode: 403, message: "Нет доступа к админке" });
   const can = (p: (typeof PERMISSIONS)[number]) =>
     !!user.headAdmin || user.permissions.includes(p);
@@ -15,27 +15,30 @@ export default defineEventHandler(async (event) => {
   return {
     ...data,
 
-    accounts: user.headAdmin
-      ? all<{
-          id: number;
-          login: string;
-          nickname: string;
-          displayName: string;
-          playerId: number | null;
-          playerName: string | null;
-          avatarLocked: number;
-          headAdmin: number;
-          disabled: number;
-          permissions: string;
-          avatarUrl: string;
-          avatar: string | null;
-        }>(
-          "SELECT a.id,a.login,a.nickname,p.id AS playerId,p.name AS playerName,COALESCE(NULLIF(p.name,''),NULLIF(a.nickname,''),a.login) AS displayName,a.headAdmin,a.disabled,a.permissions,a.avatarLocked,a.avatarUrl,COALESCE(NULLIF(a.avatarUrl,''),NULLIF(a.discordAvatar,''),NULLIF(a.googleAvatar,'')) AS avatar FROM accounts a LEFT JOIN players p ON p.accountId=a.id AND p.deletedAt IS NULL",
-        ).map((a) => ({
-          ...a,
-          permissions: JSON.parse(a.permissions) as string[],
-        }))
-      : [],
+    accounts:
+      user.headAdmin || user.seniorAdmin
+        ? all<{
+            id: number;
+            login: string;
+            nickname: string;
+            displayName: string;
+            playerId: number | null;
+            playerName: string | null;
+            avatarLocked: number;
+            headAdmin: number;
+            seniorAdmin: number;
+            adminContact: string;
+            disabled: number;
+            permissions: string;
+            avatarUrl: string;
+            avatar: string | null;
+          }>(
+            "SELECT a.id,a.login,a.nickname,p.id AS playerId,p.name AS playerName,COALESCE(NULLIF(p.name,''),NULLIF(a.nickname,''),a.login) AS displayName,a.headAdmin,a.seniorAdmin,a.adminContact,a.disabled,a.permissions,a.avatarLocked,a.avatarUrl,COALESCE(NULLIF(a.avatarUrl,''),NULLIF(a.discordAvatar,''),NULLIF(a.googleAvatar,'')) AS avatar FROM accounts a LEFT JOIN players p ON p.accountId=a.id AND p.deletedAt IS NULL",
+          ).map((a) => ({
+            ...a,
+            permissions: JSON.parse(a.permissions) as string[],
+          }))
+        : [],
     accountOptions: can("players:write")
       ? all<{ id: number; login: string; displayName: string }>(
           "SELECT a.id,a.login,COALESCE(NULLIF(p.name,''),NULLIF(a.nickname,''),a.login) AS displayName FROM accounts a LEFT JOIN players p ON p.accountId=a.id AND p.deletedAt IS NULL",
